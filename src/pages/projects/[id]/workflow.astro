@@ -104,6 +104,7 @@ const phaseVariant = (s: PhaseStatus) =>
               const count = tasks.filter((t) => t.phase_code === phase.phase_code);
               const doneCount = count.filter((t) => t.status === 'done' || t.status === 'skipped').length;
               const isCurrent = phase.phase_code === selectedPhase;
+              const notApplicable = count.length === 0 && !guideForPhase(phase.phase_code, project.work_type);
               return (
                 <li>
                   <a
@@ -116,7 +117,10 @@ const phaseVariant = (s: PhaseStatus) =>
                       {def?.title ?? phase.phase_code}
                       <small>{count.length > 0 ? `${doneCount}/${count.length}` : ''}</small>
                     </span>
-                    <StatusPill variant={phaseVariant(phase.status)} label={phaseStatusLabel[phase.status]} />
+                    <StatusPill
+                      variant={phaseVariant(phase.status)}
+                      label={notApplicable ? 'Nem alkalmazandó' : phaseStatusLabel[phase.status]}
+                    />
                   </a>
                 </li>
               );
