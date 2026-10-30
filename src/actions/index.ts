@@ -8,6 +8,8 @@ import {
 } from '../lib/schemas';
 import { PHASES } from '../lib/phases';
 import { tasksForWorkType } from '../lib/playbook/templates';
+import { FILE_BUCKET, MAX_FILE_SIZE_BYTES } from '../lib/resources';
+import { resourceAccessSchema, resourceDeleteSchema, resourceLinkSchema, resourceUploadSchema } from '../lib/schemas';
 import { z } from 'zod';
 import type { ActionAPIContext } from 'astro:actions';
 import type { SupabaseClient, User } from '@supabase/supabase-js';
@@ -298,4 +300,120 @@ export const server = {
       },
     }),
   },
+
+  resources: {
+    createLink: defineAction({
+      accept: 'form',
+      input: resourceLinkSchema,
+      handler: async (input, context) => {
+        const { supabase, user } = requireUser(context);
+        const { data, error } = await supabase
+          .from('project_resources')
+          .insert({
+            owner_id: user.id,
+            project_id: input.project_id,
+            kind: 'link',
+            provider: input.provider ?? null,
+            label: input.label,
+            url: input.url,
+            note: input.note ?? null,
+          })
+          .select('id');
+        if (error) {
+          throw new ActionError({ code: 'INTERNAL_SERVER_ERROR', message: error.message });
+        }
+        return { resourceId: data?.[0]?.id };
+      },
+    }),
+
+    createAccess: defineAction({
+      accept: 'form',
+      input: resourceAccessSchema,
+      handler: async (input, context) => {
+        const { supabase, user } = requireUser(context);
+        const { data, error } = await supabase
+          .from('project_resources')
+          .insert({
+            owner_id: user.id,
+            project_id: input.project_id,
+            kind: 'access',
+            provider: input.provider,
+            label: input.label,
+            url: input.url || null,
+            username: input.username ?? null,
+            vault_ref: input.vault_ref ?? null,
+            note: input.note ?? null,
+          })
+          .select('id');
+        if (error) {
+          throw new ActionError({ code: 'INTERNAL_SERVER_ERROR', message: error.message });
+        }
+        return { resourceId: data?.[0]?.id };
+      },
+    }),
+
+    uploadFile: defineAction({
+      accept: 'form',
+      input: resourceUploadSchema,
+      handler: async (input, context) => {
+        const { supabase, user } = requireUser(context);
+        const file = input.file;
+        if (file.size > MAX_FILE_SIZE_BYTES) {
+          throw new ActionError({
+            code: 'BAD_REQUEST',
+            message: 'A fájl legfeljebb 10 MB lehet.',
+          });
+        }
+        const safeName = file.name.replace(/[^\w.\-()áéíóöőúüűÁÉÍÓÖŐÚÜŰ ]+/g, '_');
+        const objectPath = `${user.id}/${input.project_id}/${crypto.randomUUID()}-${safeName}`;
+        const { error: uploadError } = await supabase.storage
+          .from(FILE_BUCKET)
+          .upload(objectPath, file, { contentType: file.type || 'application/octet-stream' });
+        if (uploadError) {
+          throw new ActionError({ code: 'INTERNAL_SERVER_ERROR', message: uploadError.message });
+        }
+        const { error } = await supabase.from('project_resources').insert({
+          owner_id: user.id,
+          project_id: input.project_id,
+          kind: 'file',
+          label: input.label || file.name,
+          object_path: objectPath,
+        });
+        if (error) {
+          await supabase.storage.from(FILE_BUCKET).remove([objectPath]);
+          throw new ActionError({ code: 'INTERNAL_SERVER_ERROR', message: error.message });
+        }
+        return { ok: true };
+      },
+    }),
+
+    remove: defineAction({
+      accept: 'form',
+      input: resourceDeleteSchema,
+      handler: async (input, context) => {
+        const { supabase } = requireUser(context);
+        const { data: resource, error: fetchError } = await supabase
+          .from('project_resources')
+          .select('id, object_path')
+          .eq('id', input.resource_id)
+          .eq('project_id', input.project_id)
+          .maybeSingle();
+        if (fetchError || !resource) {
+          throw new ActionError({ code: 'NOT_FOUND', message: 'A tétel nem található.' });
+        }
+        const { error } = await supabase
+          .from('project_resources')
+          .delete()
+          .eq('id', resource.id);
+        if (error) {
+          throw new ActionError({ code: 'INTERNAL_SERVER_ERROR', message: error.message });
+        }
+        if (resource.object_path) {
+          await supabase.storage.from(FILE_BUCKET).remove([resource.object_path]);
+        }
+        return { ok: true };
+      },
+    }),
+  },
 };
+

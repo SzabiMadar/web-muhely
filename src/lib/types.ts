@@ -74,3 +74,19 @@ export interface ProjectTask {
   created_at: string;
   updated_at: string;
 }
+
+export interface ProjectResource {
+  id: string;
+  owner_id: string;
+  project_id: string;
+  kind: 'link' | 'file' | 'access';
+  provider: string | null;
+  label: string;
+  url: string | null;
+  object_path: string | null;
+  username: string | null;
+  vault_ref: string | null;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}

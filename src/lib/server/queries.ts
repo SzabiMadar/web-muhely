@@ -128,3 +128,18 @@ export async function listProjectTasks(supabase: SupabaseClient, projectId: stri
 export function nextOpenTask<T extends { status: string }>(tasks: readonly T[]): T | null {
   return tasks.find((t) => t.status === 'in_progress') ?? tasks.find((t) => t.status === 'todo') ?? null;
 }
+
+export async function listProjectResources(supabase: SupabaseClient, projectId: string) {
+  const { data, error } = await supabase
+    .from('project_resources')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('created_at');
+  if (error) throw new Error(error.message);
+  return (data ?? []) as import('../types').ProjectResource[];
+}
+
+export async function signedFileUrl(supabase: SupabaseClient, objectPath: string) {
+  const { data } = await supabase.storage.from('project-files').createSignedUrl(objectPath, 60 * 10);
+  return data?.signedUrl ?? null;
+}

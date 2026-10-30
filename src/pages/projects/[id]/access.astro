@@ -1,26 +1,254 @@
 ---
+import { actions, isInputError } from 'astro:actions';
 import AppLayout from '../../../layouts/AppLayout.astro';
 import PageHeader from '../../../components/PageHeader.astro';
 import ProjectTabs from '../../../components/ProjectTabs.astro';
-import PlannedFeature from '../../../components/PlannedFeature.astro';
-import { getProjectOverview } from '../../../lib/server/queries';
+import EmptyState from '../../../components/EmptyState.astro';
+import { getProjectOverview, listProjectResources } from '../../../lib/server/queries';
+import type { ProjectResource } from '../../../lib/types';
 
 const supabase = Astro.locals.supabase!;
 const project = await getProjectOverview(supabase, Astro.params.id!);
 if (!project) {
   return Astro.redirect('/projects');
 }
+
+let formError: string | null = null;
+let fieldErrors: Record<string, string[] | undefined> = {};
+
+if (Astro.request.method === 'POST') {
+  const formData = await Astro.request.formData();
+  formData.set('project_id', project.id);
+  let kind = formData.get('kind')?.toString();
+  let error = null;
+  if (kind === 'access') ({ error } = await Astro.callAction(actions.resources.createAccess, formData));
+  else if (kind === 'delete') ({ error } = await Astro.callAction(actions.resources.remove, formData));
+  else kind = undefined;
+
+  if (kind) {
+    if (error) {
+      if (isInputError(error)) {
+        fieldErrors = error.fields as typeof fieldErrors;
+        formError = 'Ellenőrizd a megjelölt mezőket.';
+      } else {
+        formError = error.message ?? 'A mentés nem sikerült.';
+      }
+    } else {
+      return Astro.redirect(Astro.url.pathname);
+    }
+  }
+}
+
+const resources = await listProjectResources(supabase, project.id);
+const accesses = resources.filter((r) => r.kind === 'access');
+const err = (k: string) => fieldErrors[k]?.[0];
 ---
 
 <AppLayout title={`${project.title} — Hozzáférések`}>
-  <PageHeader
-    eyebrow={project.client?.display_name ?? 'Projekt'}
-    title={project.title}
-  />
+  <PageHeader eyebrow={project.client?.display_name ?? 'Projekt'} title={project.title} />
   <ProjectTabs projectId={project.id} active="access" />
-  <PlannedFeature
-    wave="W3"
-    title="Hozzáférési térkép"
-    description="Szolgáltatások, URL-ek, fióknevek és jelszókezelő-hivatkozások nyilvántartása — jelszó és token mező nélkül. A Műhely soha nem tárol titkot, csak külső jelszókezelő rekordok referenciáit."
-  />
+
+  {formError && <p class="form-error" role="alert">{formError}</p>}
+
+  <div class="access-grid">
+    <section class="card">
+      <h2 class="card-title">Hozzáférési térkép</h2>
+      <p class="card-sub">
+        Itt csak <strong>metaadatok</strong> élnek: szolgáltató, URL, felhasználónév, jelszókezelő-hivatkozás.
+        Jelszó, token vagy API-kulcs soha nem kerül ide — azok a vaultban maradnak.
+      </p>
+
+      {
+        accesses.length === 0 ? (
+          <EmptyState
+            title="Még nincs hozzáférés rögzítve."
+            description="Vedd fel a projekt hosting-, domain-, repo- és adminhozzáféréseit vault-hivatkozással — átadásnál innen dolgozik a checklist."
+          />
+        ) : (
+          <ul class="acc-list" role="list">
+            {accesses.map((res: ProjectResource) => (
+              <li class="acc-row">
+                <div class="acc-provider">{res.provider}</div>
+                <div class="acc-info">
+                  <strong>{res.label}</strong>
+                  <small>
+                    {res.url && <a href={res.url} target="_blank" rel="noopener noreferrer">{res.url}</a>}
+                    {res.username && <span> · {res.username}</span>}
+                  </small>
+                  {res.vault_ref && <small class="vault">Vault: {res.vault_ref}</small>}
+                  {res.note && <small class="res-note">{res.note}</small>}
+                </div>
+                <form method="POST" class="del-form">
+                  <input type="hidden" name="kind" value="delete" />
+                  <input type="hidden" name="resource_id" value={res.id} />
+                  <button type="submit" class="btn btn-ghost small danger" aria-label={`${res.label} törlése`}>Törlés</button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        )
+      }
+    </section>
+
+    <section class="card">
+      <h2 class="card-title">Hozzáférés rögzítése</h2>
+      <p class="card-sub">A vault_ref mező a jelszókezelő tételének neve/azonosítója — pl. „1Password › Kepzelet hosting”.</p>
+      <form method="POST" class="acc-form" novalidate>
+        <input type="hidden" name="kind" value="access" />
+        <div class="form-field">
+          <label for="acc-provider">Szolgáltató *</label>
+          <input id="acc-provider" name="provider" type="text" required maxlength="100" placeholder="pl. Netlify, GitHub, cPanel" aria-invalid={err('provider') ? 'true' : undefined} />
+          {err('provider') && <p class="field-error">{err('provider')}</p>}
+        </div>
+        <div class="form-field">
+          <label for="acc-label">Címke *</label>
+          <input id="acc-label" name="label" type="text" required maxlength="200" placeholder="pl. Éles hosting admin" aria-invalid={err('label') ? 'true' : undefined} />
+          {err('label') && <p class="field-error">{err('label')}</p>}
+        </div>
+        <div class="form-field">
+          <label for="acc-url">URL</label>
+          <input id="acc-url" name="url" type="url" placeholder="https://…" aria-invalid={err('url') ? 'true' : undefined} />
+          {err('url') && <p class="field-error">{err('url')}</p>}
+        </div>
+        <div class="form-field">
+          <label for="acc-username">Felhasználónév / azonosító</label>
+          <input id="acc-username" name="username" type="text" maxlength="200" />
+        </div>
+        <div class="form-field">
+          <label for="acc-vault">Vault-hivatkozás</label>
+          <input id="acc-vault" name="vault_ref" type="text" maxlength="200" placeholder="1Password / Bitwarden tétel neve" />
+        </div>
+        <div class="form-field">
+          <label for="acc-note">Megjegyzés</label>
+          <input id="acc-note" name="note" type="text" maxlength="2000" />
+        </div>
+        <button type="submit" class="btn btn-primary">Hozzáférés mentése</button>
+      </form>
+    </section>
+  </div>
 </AppLayout>
+
+<style>
+  .form-error {
+    background: var(--danger-soft);
+    color: var(--danger);
+    border-radius: var(--radius-control);
+    padding: 11px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 16px;
+  }
+
+  .access-grid {
+    display: grid;
+    grid-template-columns: 1.15fr 1fr;
+    gap: 20px;
+    align-items: start;
+  }
+
+  .card {
+    padding: 22px 24px;
+  }
+
+  .card-title {
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: -.01em;
+  }
+
+  .card-sub {
+    color: var(--muted);
+    font-size: 12.5px;
+    margin-top: 4px;
+    margin-bottom: 16px;
+    line-height: 1.5;
+  }
+
+  .acc-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .acc-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 12px 2px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .acc-list li:last-child {
+    border-bottom: 0;
+  }
+
+  .acc-provider {
+    flex-shrink: 0;
+    min-width: 86px;
+    font-size: 10.5px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--accent-deep);
+    background: var(--accent-soft);
+    border-radius: 7px;
+    padding: 5px 9px;
+    text-align: center;
+  }
+
+  .acc-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .acc-info strong {
+    font-size: 13.5px;
+    display: block;
+  }
+
+  .acc-info small {
+    display: block;
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 3px;
+    word-break: break-all;
+  }
+
+  .acc-info small.vault {
+    color: var(--warning);
+    font-weight: 600;
+  }
+
+  .btn.small.danger {
+    color: var(--danger);
+  }
+
+  .acc-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .acc-form input {
+    min-height: 40px;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    font: inherit;
+    font-size: 13.5px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .acc-form input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    border-color: var(--accent);
+  }
+
+  @media (max-width: 900px) {
+    .access-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

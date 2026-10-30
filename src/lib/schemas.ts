@@ -84,3 +84,35 @@ export const signInSchema = z.object({
 export type ClientInput = z.infer<typeof clientInputSchema>;
 export type ProjectCreateInput = z.infer<typeof projectCreateSchema>;
 export type ProjectUpdateInput = z.infer<typeof projectUpdateSchema>;
+
+export const resourceLinkSchema = z.object({
+  project_id: z.uuid(),
+  provider: z.string().trim().max(100).nullish(),
+  label: z.string().trim().min(1, 'A címke kötelező.').max(200),
+  url: z.url('Érvényes URL-t adj meg (https://…).'),
+  note: z.string().trim().max(2000).nullish(),
+});
+
+export const resourceAccessSchema = z.object({
+  project_id: z.uuid(),
+  provider: z.string().trim().min(1, 'A szolgáltató neve kötelező.').max(100),
+  label: z.string().trim().min(1, 'A címke kötelező.').max(200),
+  url: z.union([z.literal(''), z.url('Érvényes URL-t adj meg.')]).nullish(),
+  username: z.string().trim().max(200).nullish(),
+  vault_ref: z.string().trim().max(200).nullish(),
+  note: z.string().trim().max(2000).nullish(),
+});
+
+export const resourceUploadSchema = z.object({
+  project_id: z.uuid(),
+  label: z.string().trim().max(200).nullish(),
+  file: z.instanceof(File).refine(
+    (file) => file.size > 0,
+    'Válassz ki egy fájlt.',
+  ),
+});
+
+export const resourceDeleteSchema = z.object({
+  project_id: z.uuid(),
+  resource_id: z.uuid(),
+});

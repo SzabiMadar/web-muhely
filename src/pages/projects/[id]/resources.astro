@@ -1,26 +1,321 @@
 ---
+import { actions, isInputError } from 'astro:actions';
 import AppLayout from '../../../layouts/AppLayout.astro';
 import PageHeader from '../../../components/PageHeader.astro';
 import ProjectTabs from '../../../components/ProjectTabs.astro';
-import PlannedFeature from '../../../components/PlannedFeature.astro';
-import { getProjectOverview } from '../../../lib/server/queries';
+import EmptyState from '../../../components/EmptyState.astro';
+import { getProjectOverview, listProjectResources, signedFileUrl } from '../../../lib/server/queries';
+import { RESOURCE_PRESETS } from '../../../lib/resources';
+import type { ProjectResource } from '../../../lib/types';
 
 const supabase = Astro.locals.supabase!;
 const project = await getProjectOverview(supabase, Astro.params.id!);
 if (!project) {
   return Astro.redirect('/projects');
 }
+
+let formError: string | null = null;
+let fieldErrors: Record<string, string[] | undefined> = {};
+
+if (Astro.request.method === 'POST') {
+  const formData = await Astro.request.formData();
+  formData.set('project_id', project.id);
+  let kind = formData.get('kind')?.toString();
+  let error = null;
+  if (kind === 'link') ({ error } = await Astro.callAction(actions.resources.createLink, formData));
+  else if (kind === 'upload') ({ error } = await Astro.callAction(actions.resources.uploadFile, formData));
+  else if (kind === 'delete') ({ error } = await Astro.callAction(actions.resources.remove, formData));
+  else kind = undefined;
+
+  if (kind) {
+    if (error) {
+      if (isInputError(error)) {
+        fieldErrors = error.fields as typeof fieldErrors;
+        formError = 'Ellenőrizd a megjelölt mezőket.';
+      } else {
+        formError = error.message ?? 'A mentés nem sikerült.';
+      }
+    } else {
+      return Astro.redirect(Astro.url.pathname);
+    }
+  }
+}
+
+const resources = await listProjectResources(supabase, project.id);
+const links = resources.filter((r) => r.kind === 'link');
+const files = resources.filter((r) => r.kind === 'file');
+const fileUrls = new Map<string, string | null>();
+for (const file of files) {
+  if (file.object_path) fileUrls.set(file.id, await signedFileUrl(supabase, file.object_path));
+}
+const presets = RESOURCE_PRESETS.filter((p) => p.appliesTo.includes(project.work_type));
+const err = (k: string) => fieldErrors[k]?.[0];
 ---
 
 <AppLayout title={`${project.title} — Dosszié`}>
-  <PageHeader
-    eyebrow={project.client?.display_name ?? 'Projekt'}
-    title={project.title}
-  />
+  <PageHeader eyebrow={project.client?.display_name ?? 'Projekt'} title={project.title} />
   <ProjectTabs projectId={project.id} active="resources" />
-  <PlannedFeature
-    wave="W3"
-    title="Projektdosszié"
-    description="Ide kerülnek a projekthez csatolt linkek, privát fájlok és jegyzetek — kategorizálva, kereshetően. A fájlfeltöltés privát Supabase Storage-bucketbe történik majd."
-  />
+
+  {formError && <p class="form-error" role="alert">{formError}</p>}
+
+  <div class="res-grid">
+    <section class="card">
+      <h2 class="card-title">Külső erőforrások</h2>
+      <p class="card-sub">Linkek a projekt tárhelyeihez — GitHub, staging, Figma, DNS, stb.</p>
+
+      {
+        links.length === 0 && files.length === 0 ? (
+          <EmptyState
+            title="A dosszié még üres."
+            description="Adj hozzá egy linket az alábbi presetekkel vagy űrlappal, illetve tölts fel fájlt a projekthez."
+          />
+        ) : (
+          <ul class="res-list" role="list">
+            {links.map((res: ProjectResource) => (
+              <li class="res-row">
+                <div class="res-info">
+                  <strong>{res.label}</strong>
+                  <small>{res.provider ? `${res.provider} · ` : ''}<a href={res.url!} target="_blank" rel="noopener noreferrer" class="res-url">{res.url}</a></small>
+                  {res.note && <small class="res-note">{res.note}</small>}
+                </div>
+                <form method="POST" class="del-form">
+                  <input type="hidden" name="kind" value="delete" />
+                  <input type="hidden" name="resource_id" value={res.id} />
+                  <button type="submit" class="btn btn-ghost small danger" aria-label={`${res.label} törlése`}>Törlés</button>
+                </form>
+              </li>
+            ))}
+            {files.map((res: ProjectResource) => (
+              <li class="res-row">
+                <div class="res-info">
+                  <strong>{res.label}</strong>
+                  <small>Fájl · {fileUrls.get(res.id)
+                    ? <a href={fileUrls.get(res.id)!} class="res-url">Letöltés</a>
+                    : 'letöltés nem elérhető'}</small>
+                  {res.note && <small class="res-note">{res.note}</small>}
+                </div>
+                <form method="POST" class="del-form">
+                  <input type="hidden" name="kind" value="delete" />
+                  <input type="hidden" name="resource_id" value={res.id} />
+                  <button type="submit" class="btn btn-ghost small danger" aria-label={`${res.label} törlése`}>Törlés</button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        )
+      }
+    </section>
+
+    <section class="card">
+      <h2 class="card-title">Link hozzáadása</h2>
+      <p class="card-sub">Preset csak előtölt — tetszőleges egyedi link is felvehető.</p>
+
+      <div class="preset-chips">
+        {presets.map((preset) => (
+          <button type="button" class="chip" data-provider={preset.provider} data-label={preset.label}>
+            {preset.label}
+          </button>
+        ))}
+      </div>
+
+      <form method="POST" class="res-form" novalidate>
+        <input type="hidden" name="kind" value="link" />
+        <input type="hidden" name="provider" id="res-provider" />
+        <div class="form-field">
+          <label for="res-label">Címke *</label>
+          <input id="res-label" name="label" type="text" required maxlength="200" aria-invalid={err('label') ? 'true' : undefined} />
+          {err('label') && <p class="field-error">{err('label')}</p>}
+        </div>
+        <div class="form-field">
+          <label for="res-url">URL *</label>
+          <input id="res-url" name="url" type="url" required placeholder="https://…" aria-invalid={err('url') ? 'true' : undefined} />
+          {err('url') && <p class="field-error">{err('url')}</p>}
+        </div>
+        <div class="form-field">
+          <label for="res-note">Megjegyzés</label>
+          <input id="res-note" name="note" type="text" maxlength="2000" />
+        </div>
+        <button type="submit" class="btn btn-primary">Link mentése</button>
+      </form>
+
+      <hr class="sep" />
+
+      <h2 class="card-title">Fájl feltöltése</h2>
+      <p class="card-sub">Privát tároló, legfeljebb 10 MB — csak te éred el.</p>
+      <form method="POST" enctype="multipart/form-data" class="res-form" novalidate>
+        <input type="hidden" name="kind" value="upload" />
+        <div class="form-field">
+          <label for="file-label">Megjelenített név</label>
+          <input id="file-label" name="label" type="text" maxlength="200" placeholder="(fájlnév lesz, ha üres)" />
+        </div>
+        <div class="form-field">
+          <label for="file-input">Fájl *</label>
+          <input id="file-input" name="file" type="file" required aria-invalid={err('file') ? 'true' : undefined} />
+          {err('file') && <p class="field-error">{err('file')}</p>}
+        </div>
+        <button type="submit" class="btn btn-primary">Feltöltés</button>
+      </form>
+    </section>
+  </div>
 </AppLayout>
+
+<style>
+  .form-error {
+    background: var(--danger-soft);
+    color: var(--danger);
+    border-radius: var(--radius-control);
+    padding: 11px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 16px;
+  }
+
+  .res-grid {
+    display: grid;
+    grid-template-columns: 1.15fr 1fr;
+    gap: 20px;
+    align-items: start;
+  }
+
+  .card {
+    padding: 22px 24px;
+  }
+
+  .card-title {
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: -.01em;
+  }
+
+  .card-sub {
+    color: var(--muted);
+    font-size: 12.5px;
+    margin-top: 4px;
+    margin-bottom: 16px;
+  }
+
+  .res-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .res-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 11px 2px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .res-list li:last-child {
+    border-bottom: 0;
+  }
+
+  .res-info {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .res-info strong {
+    font-size: 13.5px;
+    display: block;
+  }
+
+  .res-info small {
+    display: block;
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 3px;
+    word-break: break-all;
+  }
+
+  .res-url {
+    color: var(--accent-deep);
+  }
+
+  .res-note {
+    font-style: italic;
+  }
+
+  .btn.small.danger {
+    color: var(--danger);
+  }
+
+  .preset-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    margin-bottom: 18px;
+  }
+
+  .chip {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+    cursor: pointer;
+    transition: border-color .12s ease;
+  }
+
+  .chip:hover,
+  .chip:focus-visible {
+    border-color: var(--accent);
+    outline: none;
+  }
+
+  .res-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .res-form input[type='text'],
+  .res-form input[type='url'],
+  .res-form input[type='file'] {
+    min-height: 40px;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    font: inherit;
+    font-size: 13.5px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .res-form input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    border-color: var(--accent);
+  }
+
+  .sep {
+    border: 0;
+    border-top: 1px solid var(--border);
+    margin: 20px 0;
+  }
+
+  @media (max-width: 900px) {
+    .res-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<script>
+  document.querySelectorAll<HTMLButtonElement>('.chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      const provider = chip.dataset.provider ?? '';
+      const label = chip.dataset.label ?? '';
+      const providerInput = document.getElementById('res-provider') as HTMLInputElement | null;
+      const labelInput = document.getElementById('res-label') as HTMLInputElement | null;
+      if (providerInput) providerInput.value = provider;
+      if (labelInput && !labelInput.value) labelInput.value = label;
+      labelInput?.focus();
+    });
+  });
+</script>
