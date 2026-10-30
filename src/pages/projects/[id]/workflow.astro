@@ -1,15 +1,78 @@
 ---
+import { actions, isInputError } from 'astro:actions';
 import AppLayout from '../../../layouts/AppLayout.astro';
 import PageHeader from '../../../components/PageHeader.astro';
 import ProjectTabs from '../../../components/ProjectTabs.astro';
-import PlannedFeature from '../../../components/PlannedFeature.astro';
-import { getProjectOverview } from '../../../lib/server/queries';
+import StatusPill from '../../../components/StatusPill.astro';
+import { getProjectOverview, listProjectTasks, nextOpenTask } from '../../../lib/server/queries';
+import { guideForPhase, tasksForWorkType } from '../../../lib/playbook/templates';
+import { PHASES } from '../../../lib/phases';
+import type { TaskStatus, TaskVerification, PhaseStatus } from '../../../lib/types';
 
 const supabase = Astro.locals.supabase!;
 const project = await getProjectOverview(supabase, Astro.params.id!);
 if (!project) {
   return Astro.redirect('/projects');
 }
+
+let formError: string | null = null;
+let seeded = false;
+
+if (Astro.request.method === 'POST') {
+  const formData = await Astro.request.formData();
+  let kind = formData.get('kind')?.toString();
+  formData.set('project_id', project.id);
+
+  let error = null;
+  if (kind === 'seed') ({ error } = await Astro.callAction(actions.projects.seedTasks, formData));
+  else if (kind === 'phase') ({ error } = await Astro.callAction(actions.projects.setPhaseStatus, formData));
+  else if (kind === 'task') ({ error } = await Astro.callAction(actions.projects.setTaskStatus, formData));
+  else if (kind === 'verify') ({ error } = await Astro.callAction(actions.projects.setTaskVerification, formData));
+  else kind = undefined;
+
+  if (kind) {
+    if (error) {
+      formError = isInputError(error) ? 'Érvénytelen állapot.' : (error.message ?? 'A mentés nem sikerült.');
+    } else {
+      seeded = kind === 'seed';
+      return Astro.redirect(Astro.url.pathname + Astro.url.search);
+    }
+  }
+}
+
+const tasks = await listProjectTasks(supabase, project.id);
+const selectedPhase = Astro.url.searchParams.get('phase')
+  ?? tasks.find((t) => t.status === 'in_progress' || t.status === 'todo')?.phase_code
+  ?? '01';
+const phaseTasks = tasks.filter((t) => t.phase_code === selectedPhase);
+const guide = guideForPhase(selectedPhase, project.work_type);
+const nextTask = nextOpenTask(tasks);
+const verificationKeys = new Set(
+  tasksForWorkType(project.work_type).filter((t) => t.needsVerification).map((t) => t.key),
+);
+
+const phaseStatusLabel: Record<PhaseStatus, string> = {
+  not_started: 'Nem kezdődött',
+  in_progress: 'Folyamatban',
+  completed: 'Kész',
+  skipped: 'Kihagyva',
+};
+const taskStatusLabel: Record<TaskStatus, string> = {
+  todo: 'Teendő',
+  in_progress: 'Folyamatban',
+  done: 'Kész',
+  skipped: 'Kihagyva',
+};
+const verificationLabel: Record<TaskVerification, string> = {
+  not_tested: 'Nem ellenőrzött',
+  passed: 'Megfelelt',
+  failed: 'Sikertelen',
+  not_applicable: 'Nem értelmezhető',
+};
+const phaseStatusOf = (code: string) =>
+  project.phases.find((p) => p.phase_code === code)?.status ?? 'not_started';
+const phaseVariant = (s: PhaseStatus) =>
+  s === 'completed' ? 'accent' : s === 'in_progress' ? 'warning' : s === 'skipped' ? 'danger' : 'neutral';
 ---
 
 <AppLayout title={`${project.title} — Folyamat`}>
@@ -18,9 +81,479 @@ if (!project) {
     title={project.title}
   />
   <ProjectTabs projectId={project.id} active="workflow" />
-  <PlannedFeature
-    wave="W2"
-    title="Vezetett munkafolyamat"
-    description="Itt jelenik meg a 11 fázisos szakmai playbook a projekttípushoz rendelt feladatokkal, kézi státusz- és QA-jelöléssel. A fázisok már rögzültek a projekt létrehozásakor — a feladatlista a W2 szeletben kapcsolódik."
-  />
+
+  {formError && <p class="form-error" role="alert">{formError}</p>}
+  {seeded && <p class="form-ok" role="status">A feladatlista a munkatípus sablonjából elkészült.</p>}
+
+  {
+    tasks.length === 0 ? (
+      <section class="card seed-panel">
+        <h2>A munkafolyamat még nincs inicializálva.</h2>
+        <p>Ez a projekt a feladatlista-sablon bevezetése előtt készült. Az inicializálás a munkatípushoz ({project.work_type}) tartozó feladatokat tölti be a 11 fázisba — a korábban rögzített adatok nem módosulnak.</p>
+        <form method="POST">
+          <input type="hidden" name="kind" value="seed" />
+          <button type="submit" class="btn btn-primary">Feladatlista létrehozása</button>
+        </form>
+      </section>
+    ) : (
+      <div class="workflow-grid">
+        <nav class="card phase-nav" aria-label="Fázisok">
+          <ul role="list">
+            {project.phases.map((phase) => {
+              const def = PHASES.find((p) => p.code === phase.phase_code);
+              const count = tasks.filter((t) => t.phase_code === phase.phase_code);
+              const doneCount = count.filter((t) => t.status === 'done' || t.status === 'skipped').length;
+              const isCurrent = phase.phase_code === selectedPhase;
+              return (
+                <li>
+                  <a
+                    href={`?phase=${phase.phase_code}`}
+                    class:list={['phase-link', { current: isCurrent }]}
+                    aria-current={isCurrent ? 'true' : undefined}
+                  >
+                    <span class="phase-code">{phase.phase_code}</span>
+                    <span class="phase-name">
+                      {def?.title ?? phase.phase_code}
+                      <small>{count.length > 0 ? `${doneCount}/${count.length}` : ''}</small>
+                    </span>
+                    <StatusPill variant={phaseVariant(phase.status)} label={phaseStatusLabel[phase.status]} />
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+
+        <section class="card task-panel">
+          <div class="panel-head">
+            <h2>{selectedPhase}. {PHASES.find((p) => p.code === selectedPhase)?.title}</h2>
+            <StatusPill
+              variant={phaseVariant(phaseStatusOf(selectedPhase))}
+              label={phaseStatusLabel[phaseStatusOf(selectedPhase)]}
+            />
+          </div>
+
+          <form method="POST" class="phase-actions">
+            <input type="hidden" name="kind" value="phase" />
+            <input type="hidden" name="phase_code" value={selectedPhase} />
+            <label class="visually-hidden" for="phase-status">Fázis állapota</label>
+            <select id="phase-status" name="status">
+              {(['not_started','in_progress','completed','skipped'] as PhaseStatus[]).map((s) => (
+                <option value={s} selected={phaseStatusOf(selectedPhase) === s}>{phaseStatusLabel[s]}</option>
+              ))}
+            </select>
+            <button type="submit" class="btn btn-ghost small">Fázis állapot mentése</button>
+          </form>
+
+          <ul class="task-list" role="list">
+            {phaseTasks.length === 0 && (
+              <li class="task-empty">Ebben a fázisban nincs feladat a munkatípus sablonja szerint.</li>
+            )}
+            {phaseTasks.map((task) => {
+              const isNext = nextTask?.id === task.id;
+              const needsVerification = task.template_item_key ? verificationKeys.has(task.template_item_key) : false;
+              return (
+                <li class:list={['task-row', { next: isNext }]}>
+                  <div class="task-head">
+                    <strong>{task.label}</strong>
+                    <div class="task-badges">
+                      {isNext && <StatusPill variant="accent" label="Következő" />}
+                      <StatusPill
+                        variant={task.status === 'done' ? 'accent' : task.status === 'in_progress' ? 'warning' : task.status === 'skipped' ? 'danger' : 'neutral'}
+                        label={taskStatusLabel[task.status]}
+                      />
+                      {needsVerification && (
+                        <StatusPill
+                          variant={task.verification === 'passed' ? 'accent' : task.verification === 'failed' ? 'danger' : 'neutral'}
+                          label={verificationLabel[task.verification]}
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  <div class="task-forms">
+                    <form method="POST" class="task-form">
+                      <input type="hidden" name="kind" value="task" />
+                      <input type="hidden" name="task_id" value={task.id} />
+                      <label class="visually-hidden" for={`st-${task.id}`}>Feladat állapota</label>
+                      <select id={`st-${task.id}`} name="status">
+                        {(['todo','in_progress','done','skipped'] as TaskStatus[]).map((s) => (
+                          <option value={s} selected={task.status === s}>{taskStatusLabel[s]}</option>
+                        ))}
+                      </select>
+                      <button type="submit" class="btn btn-ghost small">Állapot</button>
+                    </form>
+
+                    {needsVerification && (
+                      <form method="POST" class="task-form">
+                        <input type="hidden" name="kind" value="verify" />
+                        <input type="hidden" name="task_id" value={task.id} />
+                        <label class="visually-hidden" for={`vf-${task.id}`}>Ellenőrzés eredménye</label>
+                        <select id={`vf-${task.id}`} name="verification">
+                          {(['not_tested','passed','failed','not_applicable'] as TaskVerification[]).map((v) => (
+                            <option value={v} selected={task.verification === v}>{verificationLabel[v]}</option>
+                          ))}
+                        </select>
+                        <button type="submit" class="btn btn-ghost small">Ellenőrzés</button>
+                      </form>
+                    )}
+                  </div>
+
+                  {task.verification === 'failed' && task.note && (
+                    <p class="task-fail-note"><strong>Sikertelen:</strong> {task.note}</p>
+                  )}
+                  {task.note && task.verification !== 'failed' && (
+                    <p class="task-note">{task.note}</p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+
+        <aside class="card guide-panel">
+          <div class="panel-head"><h2>Útmutató</h2></div>
+          {
+            guide ? (
+              <div class="guide-body">
+                <p class="guide-goal"><strong>Cél:</strong> {guide.goal}</p>
+                <p class="guide-why">{guide.why}</p>
+                <h3>Lépések</h3>
+                <ol>
+                  {guide.steps.map((step) => <li>{step}</li>)}
+                </ol>
+                <h3>Kész, ha</h3>
+                <ul>
+                  {guide.doneWhen.map((item) => <li>{item}</li>)}
+                </ul>
+                <h3>Tipikus hibák</h3>
+                <ul class="warnings">
+                  {guide.warnings.map((item) => <li>{item}</li>)}
+                </ul>
+              </div>
+            ) : (
+              <p class="guide-empty">Ehhez a munkatípushoz e fázisban nincs sablon-útmutató.</p>
+            )
+          }
+        </aside>
+      </div>
+    )
+  }
 </AppLayout>
+
+<style>
+  .form-error {
+    background: var(--danger-soft);
+    color: var(--danger);
+    border-radius: var(--radius-control);
+    padding: 11px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 16px;
+  }
+
+  .form-ok {
+    background: var(--accent-soft);
+    color: var(--accent-deep);
+    border-radius: var(--radius-control);
+    padding: 11px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 16px;
+  }
+
+  .seed-panel {
+    padding: 26px 28px;
+    max-width: 680px;
+  }
+
+  .seed-panel h2 {
+    font-size: 19px;
+    font-weight: 800;
+    letter-spacing: -.02em;
+  }
+
+  .seed-panel p {
+    color: var(--muted);
+    font-size: 14px;
+    margin: 10px 0 18px;
+    line-height: 1.55;
+  }
+
+  .workflow-grid {
+    display: grid;
+    grid-template-columns: 250px minmax(0, 1fr) 290px;
+    gap: 20px;
+    align-items: start;
+  }
+
+  .workflow-grid > * {
+    min-width: 0;
+  }
+
+  .phase-nav {
+    padding: 14px 10px;
+    position: sticky;
+    top: 20px;
+  }
+
+  .phase-nav ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .phase-link {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 10px;
+    border-radius: 10px;
+    font-size: 12.5px;
+    transition: background-color .12s ease;
+  }
+
+  .phase-link:hover {
+    background: var(--surface-2);
+  }
+
+  .phase-link.current {
+    background: var(--accent-soft);
+  }
+
+  .phase-code {
+    font-size: 10px;
+    font-weight: 800;
+    color: var(--accent-deep);
+    background: var(--accent-soft);
+    border-radius: 5px;
+    padding: 2px 6px;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .phase-link.current .phase-code {
+    background: var(--surface);
+  }
+
+  .phase-name {
+    flex: 1;
+    min-width: 0;
+    font-weight: 600;
+    font-size: 12px;
+    line-height: 1.3;
+  }
+
+  .phase-name small {
+    display: block;
+    color: var(--muted);
+    font-size: 10.5px;
+    font-weight: 600;
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .task-panel,
+  .guide-panel {
+    padding: 20px 22px;
+  }
+
+  .phase-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .phase-actions select,
+  .task-form select {
+    min-height: 38px;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    font: inherit;
+    font-size: 13px;
+    background: var(--surface);
+    color: var(--ink);
+  }
+
+  .btn.small {
+    min-height: 38px;
+    padding: 7px 13px;
+    font-size: 12.5px;
+  }
+
+  .task-list {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+  }
+
+  .task-row {
+    padding: 14px 2px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .task-list li:last-child {
+    border-bottom: 0;
+  }
+
+  .task-row.next {
+    background: linear-gradient(to right, var(--accent-soft), transparent 40%);
+    border-radius: 8px;
+    padding-left: 8px;
+    margin-left: -8px;
+  }
+
+  .task-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .task-head strong {
+    font-size: 13.5px;
+    font-weight: 700;
+  }
+
+  .task-badges {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .task-forms {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+  }
+
+  .task-form {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .task-note,
+  .task-fail-note {
+    font-size: 12.5px;
+    color: var(--muted);
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: var(--surface-2);
+    border-radius: 8px;
+  }
+
+  .task-fail-note {
+    background: var(--danger-soft);
+    color: var(--danger);
+  }
+
+  .task-fail-note strong {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    display: block;
+    margin-bottom: 3px;
+  }
+
+  .task-empty {
+    color: var(--muted);
+    font-size: 13.5px;
+    padding: 20px 0;
+  }
+
+  .guide-panel {
+    position: sticky;
+    top: 20px;
+    max-height: calc(100vh - 60px);
+    overflow-y: auto;
+  }
+
+  .guide-body {
+    margin-top: 14px;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .guide-goal {
+    margin: 0;
+  }
+
+  .guide-why {
+    color: var(--muted);
+    margin-top: 8px;
+    font-size: 12.5px;
+  }
+
+  .guide-body h3 {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .09em;
+    color: var(--accent-deep);
+    margin: 16px 0 8px;
+  }
+
+  .guide-body ol,
+  .guide-body ul {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--muted);
+    font-size: 12.5px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .guide-body ul.warnings li {
+    color: var(--warning);
+  }
+
+  .guide-empty {
+    color: var(--muted);
+    font-size: 13px;
+    margin-top: 14px;
+  }
+
+  @media (max-width: 1180px) {
+    .workflow-grid {
+      grid-template-columns: 210px minmax(0, 1fr);
+    }
+
+    .guide-panel {
+      grid-column: 1 / -1;
+      position: static;
+      max-height: none;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .workflow-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .phase-nav {
+      position: static;
+    }
+
+    .phase-nav ul {
+      display: flex;
+      overflow-x: auto;
+      gap: 4px;
+      padding-bottom: 4px;
+    }
+
+    .phase-link {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 5px;
+      min-width: 130px;
+    }
+  }
+</style>

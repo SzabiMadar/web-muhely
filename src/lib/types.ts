@@ -59,3 +59,18 @@ export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
   archived: 'Archivált',
   cancelled: 'Törölve',
 };
+
+export interface ProjectTask {
+  id: string;
+  owner_id: string;
+  project_id: string;
+  phase_code: string;
+  template_item_key: string | null;
+  label: string;
+  status: TaskStatus;
+  verification: TaskVerification;
+  note: string | null;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}

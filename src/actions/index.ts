@@ -7,6 +7,8 @@ import {
   signInSchema,
 } from '../lib/schemas';
 import { PHASES } from '../lib/phases';
+import { tasksForWorkType } from '../lib/playbook/templates';
+import { z } from 'zod';
 import type { ActionAPIContext } from 'astro:actions';
 import type { SupabaseClient, User } from '@supabase/supabase-js';
 
@@ -141,6 +143,20 @@ export const server = {
           throw new ActionError({ code: 'INTERNAL_SERVER_ERROR', message: phasesError.message });
         }
 
+        const { error: tasksError } = await supabase.from('project_tasks').insert(
+          tasksForWorkType(input.work_type).map((task, index) => ({
+            owner_id: user.id,
+            project_id: project.id,
+            phase_code: task.phase,
+            template_item_key: task.key,
+            label: task.label,
+            position: index,
+          })),
+        );
+        if (tasksError) {
+          throw new ActionError({ code: 'INTERNAL_SERVER_ERROR', message: tasksError.message });
+        }
+
         return { projectId: project.id };
       },
     }),
@@ -163,6 +179,122 @@ export const server = {
           throw new ActionError({ code: 'NOT_FOUND', message: 'A projekt nem található.' });
         }
         return { projectId: id };
+      },
+    }),
+
+    seedTasks: defineAction({
+      accept: 'form',
+      input: z.object({ project_id: z.uuid() }),
+      handler: async (input, context) => {
+        const { supabase, user } = requireUser(context);
+        const { data: project, error: projectError } = await supabase
+          .from('projects')
+          .select('id, work_type')
+          .eq('id', input.project_id)
+          .maybeSingle();
+        if (projectError || !project) {
+          throw new ActionError({ code: 'NOT_FOUND', message: 'A projekt nem található.' });
+        }
+        const { count } = await supabase
+          .from('project_tasks')
+          .select('id', { count: 'exact', head: true })
+          .eq('project_id', project.id);
+        if (count && count > 0) return { seeded: false };
+
+        const { error } = await supabase.from('project_tasks').insert(
+          tasksForWorkType(project.work_type).map((task, index) => ({
+            owner_id: user.id,
+            project_id: project.id,
+            phase_code: task.phase,
+            template_item_key: task.key,
+            label: task.label,
+            position: index,
+          })),
+        );
+        if (error) {
+          throw new ActionError({ code: 'INTERNAL_SERVER_ERROR', message: error.message });
+        }
+        return { seeded: true };
+      },
+    }),
+
+    setPhaseStatus: defineAction({
+      accept: 'form',
+      input: z.object({
+        project_id: z.uuid(),
+        phase_code: z.string(),
+        status: z.enum(['not_started', 'in_progress', 'completed', 'skipped']),
+      }),
+      handler: async (input, context) => {
+        const { supabase } = requireUser(context);
+        const fields: Record<string, unknown> = { status: input.status };
+        if (input.status === 'in_progress') fields.started_at = new Date().toISOString();
+        if (input.status === 'completed') fields.completed_at = new Date().toISOString();
+        const { error } = await supabase
+          .from('project_phases')
+          .update(fields)
+          .eq('project_id', input.project_id)
+          .eq('phase_code', input.phase_code);
+        if (error) {
+          throw new ActionError({ code: 'INTERNAL_SERVER_ERROR', message: error.message });
+        }
+        return { ok: true };
+      },
+    }),
+
+    setTaskStatus: defineAction({
+      accept: 'form',
+      input: z.object({
+        task_id: z.uuid(),
+        project_id: z.uuid(),
+        status: z.enum(['todo', 'in_progress', 'done', 'skipped']),
+        note: z.string().trim().max(2000).nullish(),
+      }),
+      handler: async (input, context) => {
+        const { supabase } = requireUser(context);
+        const fields: Record<string, unknown> = { status: input.status };
+        if (input.note !== undefined && input.note !== null) fields.note = input.note;
+        const { data, error } = await supabase
+          .from('project_tasks')
+          .update(fields)
+          .eq('id', input.task_id)
+          .eq('project_id', input.project_id)
+          .select('id');
+        if (error) {
+          throw new ActionError({ code: 'INTERNAL_SERVER_ERROR', message: error.message });
+        }
+        if (!data || data.length === 0) {
+          throw new ActionError({ code: 'NOT_FOUND', message: 'A feladat nem található.' });
+        }
+        return { ok: true };
+      },
+    }),
+
+    setTaskVerification: defineAction({
+      accept: 'form',
+      input: z.object({
+        task_id: z.uuid(),
+        project_id: z.uuid(),
+        verification: z.enum(['not_tested', 'passed', 'failed', 'not_applicable']),
+        note: z.string().trim().max(2000).nullish(),
+      }),
+      handler: async (input, context) => {
+        const { supabase } = requireUser(context);
+        const fields: Record<string, unknown> = { verification: input.verification };
+        if (input.note !== undefined && input.note !== null) fields.note = input.note;
+        const { data, error } = await supabase
+          .from('project_tasks')
+          .update(fields)
+          .eq('id', input.task_id)
+          .eq('project_id', input.project_id)
+          .select('id');
+        if (error) {
+          throw new ActionError({ code: 'INTERNAL_SERVER_ERROR', message: error.message });
+        }
+        if (!data || data.length === 0) {
+          throw new ActionError({ code: 'NOT_FOUND', message: 'A feladat nem található.' });
+        }
+        return { ok: true };
       },
     }),
   },

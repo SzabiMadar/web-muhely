@@ -113,3 +113,18 @@ export async function getProjectOverview(
 
   return { ...project, phases: phases ?? [] };
 }
+
+export async function listProjectTasks(supabase: SupabaseClient, projectId: string) {
+  const { data, error } = await supabase
+    .from('project_tasks')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('phase_code')
+    .order('position');
+  if (error) throw new Error(error.message);
+  return (data ?? []) as import('../types').ProjectTask[];
+}
+
+export function nextOpenTask<T extends { status: string }>(tasks: readonly T[]): T | null {
+  return tasks.find((t) => t.status === 'in_progress') ?? tasks.find((t) => t.status === 'todo') ?? null;
+}
