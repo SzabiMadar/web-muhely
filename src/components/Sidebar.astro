@@ -1,0 +1,198 @@
+---
+import Icon from './Icon.astro';
+import { PRIMARY_NAV, isActiveNav } from '../lib/navigation';
+
+interface Props {
+  currentPath: string;
+}
+
+const { currentPath } = Astro.props;
+---
+
+<aside class="sidebar">
+  <a href="/dashboard" class="brand" aria-label="Műhely Workspace — áttekintés">
+    <span class="brandmark" aria-hidden="true">m.</span>
+    <span class="brandname">műhely<span class="brandsub">workspace</span></span>
+  </a>
+
+  <nav class="side-nav" aria-label="Fő navigáció">
+    <p class="side-heading">Munkaterület</p>
+    <ul role="list">
+      {
+        PRIMARY_NAV.map((item) => {
+          const active = isActiveNav(currentPath, item.href);
+          return (
+            <li>
+              <a
+                href={item.href}
+                class:list={['nav-item', { active }]}
+                aria-current={active ? 'page' : undefined}
+              >
+                <Icon name={item.icon} size={17} />
+                {item.label}
+              </a>
+            </li>
+          );
+        })
+      }
+    </ul>
+  </nav>
+
+  <div class="side-recent">
+    <p class="side-heading">Legutóbbi projektek</p>
+    <p class="side-empty">Még nincs projekted — az első felvétele után itt jelennek meg a legutóbb megnyitottak.</p>
+  </div>
+
+  <div class="side-bottom">
+    <span class="avatar" aria-hidden="true">SZ</span>
+    <div class="side-user">
+      <strong>Saját munkatér</strong>
+      <small>Egyfelhasználós nézet</small>
+    </div>
+  </div>
+</aside>
+
+<style>
+  .sidebar {
+    width: var(--sidebar-width);
+    flex-shrink: 0;
+    background: var(--sidebar);
+    color: #F7FAF6;
+    padding: 30px 17px 22px;
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 1px 11px 26px;
+  }
+
+  .brandmark {
+    width: 39px;
+    height: 39px;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    background: #D5EAD8;
+    color: #1D513C;
+    font-size: 22px;
+    font-weight: 800;
+    flex-shrink: 0;
+  }
+
+  .brandname {
+    font-size: 19px;
+    font-weight: 800;
+    letter-spacing: -.02em;
+    line-height: 1;
+  }
+
+  .brandsub {
+    display: block;
+    color: #ADBFaf;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    font-size: 9px;
+    font-weight: 800;
+    margin-top: 5px;
+  }
+
+  .side-heading {
+    color: #8FA89A;
+    text-transform: uppercase;
+    letter-spacing: .13em;
+    font-size: 10px;
+    font-weight: 800;
+    padding: 4px 12px 10px;
+    margin: 0;
+  }
+
+  .side-nav ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 13px;
+    border-radius: 11px;
+    margin: 2px 0;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: #CBD8CE;
+    transition: background-color .15s ease, color .15s ease;
+  }
+
+  .nav-item:hover {
+    background: #243C31;
+    color: #fff;
+  }
+
+  .nav-item.active {
+    background: #315646;
+    color: #fff;
+  }
+
+  .side-recent {
+    margin-top: 26px;
+  }
+
+  .side-empty {
+    color: #8FA89A;
+    font-size: 12px;
+    line-height: 1.5;
+    padding: 2px 12px;
+    margin: 0;
+    border-left: 2px solid #345044;
+  }
+
+  .side-bottom {
+    margin-top: auto;
+    border-top: 1px solid #345044;
+    padding: 18px 11px 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: #D5EAD8;
+    color: #1D513C;
+    display: grid;
+    place-items: center;
+    font-size: 13px;
+    font-weight: 800;
+    flex-shrink: 0;
+  }
+
+  .side-user strong {
+    display: block;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .side-user small {
+    display: block;
+    color: #8FA89A;
+    font-size: 11px;
+    margin-top: 1px;
+  }
+
+  @media (max-width: 860px) {
+    .sidebar {
+      display: none;
+    }
+  }
+</style>

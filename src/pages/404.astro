@@ -1,0 +1,13 @@
+---
+import AppLayout from '../layouts/AppLayout.astro';
+import EmptyState from '../components/EmptyState.astro';
+---
+
+<AppLayout title="Az oldal nem található">
+  <EmptyState
+    title="Ez az oldal nem létezik."
+    description="A keresett útvonal nem található a munkatérben — valószínűleg elírás történt, vagy az oldal még nem készült el."
+    actionLabel="Vissza az áttekintéshez"
+    actionHref="/dashboard"
+  />
+</AppLayout>

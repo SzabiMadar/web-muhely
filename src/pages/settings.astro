@@ -1,0 +1,148 @@
+---
+import AppLayout from '../layouts/AppLayout.astro';
+import PageHeader from '../components/PageHeader.astro';
+import StatusPill from '../components/StatusPill.astro';
+
+const envKeys = ['PUBLIC_SUPABASE_URL', 'PUBLIC_SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY'] as const;
+---
+
+<AppLayout title="Beállítások">
+  <PageHeader
+    eyebrow="Rendszer"
+    title="Beállítások"
+    description="A munkatér környezeti állapota és a szükséges kapcsolati beállítások."
+  />
+
+  <div class="settings-grid">
+    <section class="card settings-card">
+      <div class="panel-head">
+        <h2>Supabase kapcsolat</h2>
+        <StatusPill variant="warning" label="Nincs konfigurálva" />
+      </div>
+      <p class="settings-desc">
+        A hitelesítés, az adatbázis és a privát fájltároló bekötése a W1 szelet feladata. A kapcsolathoz az alábbi környezeti változók kellenek — a minta az
+        <code>.env.example</code> fájlban található.
+      </p>
+      <ul class="env-list">
+        {envKeys.map((key) => <li><code>{key}</code></li>)}
+      </ul>
+      <p class="settings-note">
+        A service role kulcs kizárólag szerveroldalon használható. Jelszavakat, tokeneket és privát kulcsokat az alkalmazás soha nem tárol.
+      </p>
+    </section>
+
+    <section class="card settings-card">
+      <div class="panel-head">
+        <h2>Fejlesztési állapot</h2>
+        <StatusPill variant="accent" label="W0 — Alapok" />
+      </div>
+      <dl class="stack-list">
+        <div class="stack-row"><dt>Keretrendszer</dt><dd>Astro SSR · TypeScript strict</dd></div>
+        <div class="stack-row"><dt>Hosting</dt><dd>Netlify (@astrojs/netlify adapter)</dd></div>
+        <div class="stack-row"><dt>Következő szelet</dt><dd>W1 — bejelentkezés, ügyfelek, projektek</dd></div>
+      </dl>
+    </section>
+  </div>
+</AppLayout>
+
+<style>
+  .settings-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+    gap: 24px;
+    align-items: start;
+  }
+
+  .settings-card {
+    padding: 22px 24px;
+  }
+
+  .settings-desc {
+    color: var(--muted);
+    font-size: 14px;
+    margin-top: 14px;
+    line-height: 1.55;
+  }
+
+  .env-list {
+    list-style: none;
+    margin: 16px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .env-list code,
+  .settings-desc code {
+    font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+    font-size: 12.5px;
+    background: var(--surface-2);
+    padding: 3px 8px;
+    border-radius: 6px;
+    color: var(--accent-deep);
+  }
+
+  .env-list code {
+    display: inline-block;
+    padding: 7px 12px;
+  }
+
+  .settings-note {
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    font-size: 12.5px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .stack-list {
+    margin: 16px 0 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .stack-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stack-row:last-child {
+    border-bottom: 0;
+  }
+
+  .stack-row dt {
+    font-size: 13px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .stack-row dd {
+    margin: 0;
+    font-size: 13px;
+    color: var(--muted);
+    text-align: right;
+  }
+
+  @media (max-width: 1080px) {
+    .settings-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .stack-row {
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .stack-row dd {
+      text-align: left;
+    }
+  }
+</style>

@@ -1,0 +1,211 @@
+---
+import AppLayout from '../layouts/AppLayout.astro';
+import PageHeader from '../components/PageHeader.astro';
+import EmptyState from '../components/EmptyState.astro';
+import StatusPill from '../components/StatusPill.astro';
+import { PHASES, PHASE_CHAPTERS, getPhasesByChapter } from '../lib/phases';
+---
+
+<AppLayout title="Áttekintés">
+  <PageHeader
+    eyebrow="Saját munkatér"
+    title="Jó munkát ma is."
+    description="Minden ügyfélprojekt, következő lépés és fontos anyag egy helyen."
+    ctaLabel="Új projekt"
+    ctaHref="/projects/new"
+  />
+
+  <EmptyState
+    title="A munkaterület még üres."
+    description="Itt jelennek majd meg az aktív projektjeid, a következő szakmai teendőid és a legutóbb használt projektanyagok. Az első lépés egy ügyfél, utána egy projekt felvétele."
+    note="Az ügyfél- és projektadatok tárolása a W1 fejlesztési szeletben kapcsolódik a Supabase adatbázishoz — a felviteli űrlapok addig még nem érhetők el."
+  />
+
+  <div class="dashboard-grid">
+    <section class="card methodology">
+      <div class="panel-head">
+        <h2>Műhely módszertan</h2>
+        <StatusPill variant="neutral" label={`${PHASES.length} fázis`} />
+      </div>
+      <div class="chapters">
+        {
+          PHASE_CHAPTERS.map((chapter) => (
+            <div class="chapter">
+              <h3>{chapter.title}</h3>
+              <ol>
+                {getPhasesByChapter(chapter).map((phase) => (
+                  <li>
+                    <span class="phase-code">{phase.code}</span>
+                    <div>
+                      <strong>{phase.title}</strong>
+                      <span class="phase-summary">{phase.summary}</span>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ))
+        }
+      </div>
+      <p class="methodology-foot">
+        Vezetett szakmai fázisok — a playbook a projekt típusához igazodik, nem minden lépés kötelező minden munkában.
+      </p>
+    </section>
+
+    <section class="card status-panel">
+      <div class="panel-head">
+        <h2>Kapcsolat állapota</h2>
+        <StatusPill variant="warning" label="Nincs konfigurálva" />
+      </div>
+      <p class="status-desc">
+        A Supabase adatkapcsolat még nincs bekötve. A W1 szelet hozza létre az adatbázis-sémát, a hitelesítést és a sor-szintű jogosultságokat.
+      </p>
+      <dl class="status-list">
+        <div class="status-row">
+          <dt>Supabase Auth</dt>
+          <dd><StatusPill variant="neutral" label="W1" /></dd>
+        </div>
+        <div class="status-row">
+          <dt>PostgreSQL adattár</dt>
+          <dd><StatusPill variant="neutral" label="W1" /></dd>
+        </div>
+        <div class="status-row">
+          <dt>Privát fájltároló</dt>
+          <dd><StatusPill variant="neutral" label="W3" /></dd>
+        </div>
+      </dl>
+      <p class="status-foot">
+        Jelszavakat és API-kulcsokat a Műhely nem tárol — csak a külső jelszókezelőben lévő rekordok referenciáit.
+      </p>
+    </section>
+  </div>
+</AppLayout>
+
+<style>
+  .dashboard-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+    gap: 24px;
+    margin-top: 24px;
+    align-items: start;
+  }
+
+  .methodology,
+  .status-panel {
+    padding: 22px 24px;
+  }
+
+  .chapters {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px 24px;
+    margin-top: 20px;
+  }
+
+  .chapter h3 {
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .1em;
+    color: var(--accent-deep);
+    margin-bottom: 10px;
+  }
+
+  .chapter ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .chapter li {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+
+  .phase-code {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--accent-deep);
+    background: var(--accent-soft);
+    border-radius: 6px;
+    padding: 2px 7px;
+    margin-top: 1px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .chapter li strong {
+    display: block;
+    font-size: 13.5px;
+    font-weight: 700;
+  }
+
+  .phase-summary {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 2px;
+    line-height: 1.45;
+  }
+
+  .methodology-foot,
+  .status-foot {
+    margin-top: 20px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    font-size: 12.5px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .status-desc {
+    color: var(--muted);
+    font-size: 14px;
+    margin-top: 14px;
+    line-height: 1.55;
+  }
+
+  .status-list {
+    margin: 18px 0 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .status-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .status-row:last-child {
+    border-bottom: 0;
+  }
+
+  .status-row dt {
+    font-size: 13.5px;
+    font-weight: 600;
+  }
+
+  .status-row dd {
+    margin: 0;
+  }
+
+  @media (max-width: 1080px) {
+    .dashboard-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .chapters {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

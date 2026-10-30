@@ -1,0 +1,22 @@
+---
+import AppLayout from '../../layouts/AppLayout.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import EmptyState from '../../components/EmptyState.astro';
+---
+
+<AppLayout title="Projektek">
+  <PageHeader
+    eyebrow="Portfólió"
+    title="Projektek"
+    description="Egy ügyfélhez több projekt is kapcsolódhat — a munkák itt lesznek kereshetők és szűrhetők."
+    ctaLabel="Új projekt"
+    ctaHref="/projects/new"
+  />
+
+  <EmptyState
+    title="Még nincs rögzített projekt."
+    description="A projektek a W1 szeletben lesznek felvihetők, miután az adatbázis-kapcsolat elkészül. Minden projekt a saját ügyfeléhez kötődik, a feladatok külön kezelődnek."
+    actionLabel="Új projekt felvétele"
+    actionHref="/projects/new"
+  />
+</AppLayout>

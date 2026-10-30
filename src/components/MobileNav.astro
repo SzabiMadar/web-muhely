@@ -1,0 +1,81 @@
+---
+import Icon from './Icon.astro';
+import { PRIMARY_NAV, isActiveNav } from '../lib/navigation';
+
+interface Props {
+  currentPath: string;
+}
+
+const { currentPath } = Astro.props;
+---
+
+<nav class="mobile-nav" aria-label="Fő navigáció">
+  <ul role="list">
+    {
+      PRIMARY_NAV.map((item) => {
+        const active = isActiveNav(currentPath, item.href);
+        return (
+          <li>
+            <a
+              href={item.href}
+              class:list={['mobile-nav-item', { active }]}
+              aria-current={active ? 'page' : undefined}
+            >
+              <Icon name={item.icon} size={19} />
+              <span>{item.label}</span>
+            </a>
+          </li>
+        );
+      })
+    }
+  </ul>
+</nav>
+
+<style>
+  .mobile-nav {
+    display: none;
+  }
+
+  @media (max-width: 860px) {
+    .mobile-nav {
+      display: block;
+      position: fixed;
+      inset: auto 0 0 0;
+      z-index: 50;
+      background: var(--sidebar);
+      padding: 6px 10px calc(6px + env(safe-area-inset-bottom));
+    }
+
+    .mobile-nav ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 4px;
+    }
+
+    .mobile-nav-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      min-height: 52px;
+      border-radius: 11px;
+      color: var(--sidebar-muted);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .mobile-nav-item:hover {
+      background: #243C31;
+      color: #fff;
+    }
+
+    .mobile-nav-item.active {
+      background: #315646;
+      color: #fff;
+    }
+  }
+</style>

@@ -1,0 +1,93 @@
+---
+import Icon from './Icon.astro';
+
+interface Props {
+  title: string;
+  description: string;
+  note?: string;
+  actionLabel?: string;
+  actionHref?: string;
+  secondaryLabel?: string;
+  secondaryHref?: string;
+}
+
+const { title, description, note, actionLabel, actionHref, secondaryLabel, secondaryHref } = Astro.props;
+---
+
+<section class="empty-state card">
+  <div class="empty-mark" aria-hidden="true">
+    <Icon name="folder" size={26} />
+  </div>
+  <h2>{title}</h2>
+  <p class="empty-desc">{description}</p>
+  {note && <p class="empty-note">{note}</p>}
+  {
+    (actionLabel && actionHref) || (secondaryLabel && secondaryHref) ? (
+      <div class="empty-actions">
+        {actionLabel && actionHref && (
+          <a href={actionHref} class="btn btn-primary">
+            <Icon name="plus" size={15} />
+            {actionLabel}
+          </a>
+        )}
+        {secondaryLabel && secondaryHref && (
+          <a href={secondaryHref} class="btn btn-ghost">
+            {secondaryLabel}
+          </a>
+        )}
+      </div>
+    ) : null
+  }
+</section>
+
+<style>
+  .empty-state {
+    padding: 44px 32px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .empty-mark {
+    width: 56px;
+    height: 56px;
+    border-radius: 16px;
+    background: var(--accent-soft);
+    color: var(--accent-deep);
+    display: grid;
+    place-items: center;
+    margin-bottom: 18px;
+  }
+
+  .empty-state h2 {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -.02em;
+  }
+
+  .empty-desc {
+    color: var(--muted);
+    margin-top: 10px;
+    max-width: 52ch;
+    font-size: 14.5px;
+  }
+
+  .empty-note {
+    margin-top: 14px;
+    font-size: 13px;
+    color: var(--muted);
+    background: var(--surface-2);
+    border-radius: var(--radius-control);
+    padding: 10px 16px;
+    max-width: 56ch;
+  }
+
+  .empty-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 24px;
+  }
+</style>

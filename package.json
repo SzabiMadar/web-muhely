@@ -1,0 +1,27 @@
+{
+  "name": "web-muhely",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Műhely Workspace — egyfelhasználós ügyfél- és projektmunkatér (W0)",
+  "engines": {
+    "node": ">=22.23.4"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fontsource-variable/manrope": "5.3.0",
+    "astro": "7.4.2"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.12",
+    "@astrojs/netlify": "8.2.10",
+    "typescript": "5.9.3",
+    "vitest": "5.0.5"
+  }
+}
