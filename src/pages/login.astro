@@ -1,0 +1,168 @@
+---
+import { actions } from 'astro:actions';
+import Icon from '../components/Icon.astro';
+
+const nextParam = Astro.url.searchParams.get('next');
+const next = nextParam && nextParam.startsWith('/') ? nextParam : '/dashboard';
+
+const result = Astro.getActionResult(actions.auth.signIn);
+const error = result?.error?.message ?? null;
+const configured = Astro.locals.isSupabaseConfigured;
+
+if (result && !result.error) {
+  return Astro.redirect(next);
+}
+---
+
+<!doctype html>
+<html lang="hu">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Műhely Workspace — bejelentkezés." />
+    <title>Bejelentkezés · Műhely Workspace</title>
+    <style>
+      :root {
+        --canvas: #F6F7F4;
+        --surface: #FFFFFF;
+        --surface-2: #F1F4EF;
+        --sidebar: #172B24;
+        --ink: #1A2822;
+        --muted: #68766F;
+        --border: #E1E8E1;
+        --accent: #377D64;
+        --accent-deep: #2A6350;
+        --accent-soft: #E4F2EA;
+        --danger: #B44D48;
+        --danger-soft: #F6E4E2;
+        --warning: #AD743C;
+        --warning-soft: #F5E9DA;
+        --radius-card: 16px;
+        --radius-control: 10px;
+        --shadow-card: 0 8px 28px rgba(18, 38, 28, .04);
+        --focus-ring: #72BBA3;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        font-family: 'Manrope Variable', ui-sans-serif, -apple-system, 'Segoe UI', sans-serif;
+        background: var(--canvas);
+        color: var(--ink);
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+
+      :is(a, button, input):focus-visible {
+        outline: 3px solid var(--focus-ring);
+        outline-offset: 3px;
+      }
+
+      .login-card {
+        width: 100%;
+        max-width: 420px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-card);
+        box-shadow: var(--shadow-card);
+        padding: 40px 36px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        margin-bottom: 26px;
+      }
+
+      .brandmark {
+        width: 40px;
+        height: 40px;
+        border-radius: 12px;
+        display: grid;
+        place-items: center;
+        background: #D5EAD8;
+        color: #1D513C;
+        font-size: 22px;
+        font-weight: 800;
+      }
+
+      .brandname { font-size: 19px; font-weight: 800; letter-spacing: -.02em; line-height: 1; }
+      .brandsub {
+        display: block; color: var(--muted); letter-spacing: .16em;
+        text-transform: uppercase; font-size: 9px; font-weight: 800; margin-top: 5px;
+      }
+
+      h1 { margin: 0 0 6px; font-size: 24px; font-weight: 800; letter-spacing: -.02em; }
+      .sub { margin: 0 0 24px; color: var(--muted); font-size: 14px; }
+
+      .field { margin-bottom: 16px; }
+      .field label { display: block; font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+      .field input {
+        width: 100%; min-height: 44px; padding: 10px 14px;
+        border: 1px solid var(--border); border-radius: var(--radius-control);
+        font: inherit; font-size: 14px; background: var(--surface); color: var(--ink);
+      }
+      .field input:focus { border-color: var(--accent); outline: none; }
+      .field input:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+
+      .error {
+        display: flex; gap: 8px; align-items: flex-start;
+        background: var(--danger-soft); color: var(--danger);
+        border-radius: var(--radius-control); padding: 11px 14px;
+        font-size: 13px; font-weight: 600; margin-bottom: 16px;
+      }
+
+      .notice {
+        background: var(--warning-soft); color: var(--warning);
+        border-radius: var(--radius-control); padding: 11px 14px;
+        font-size: 13px; font-weight: 600; margin-bottom: 16px;
+      }
+
+      .submit {
+        width: 100%; min-height: 44px; border: 0; border-radius: var(--radius-control);
+        background: var(--accent); color: #fff; font: inherit; font-size: 14px;
+        font-weight: 700; cursor: pointer; margin-top: 8px;
+      }
+      .submit:hover:not(:disabled) { background: var(--accent-deep); }
+      .submit:disabled { opacity: .55; cursor: not-allowed; }
+    </style>
+  </head>
+  <body>
+    <div class="login-card">
+      <div class="brand">
+        <span class="brandmark" aria-hidden="true">m.</span>
+        <span class="brandname">műhely<span class="brandsub">workspace</span></span>
+      </div>
+      <h1>Bejelentkezés</h1>
+      <p class="sub">Személyes munkaterületed ügyfelekhez és projektekhez.</p>
+
+      {
+        !configured && (
+          <p class="notice" role="status">
+            A Supabase kapcsolat még nincs konfigurálva — a bejelentkezés a környezeti változók
+            beállítása után érhető el.
+          </p>
+        )
+      }
+
+      {error && <p class="error" role="alert"><Icon name="note" size={16} />{error}</p>}
+
+      <form method="POST" action={actions.auth.signIn}>
+        <input type="hidden" name="next" value={next} />
+        <div class="field">
+          <label for="email">E-mail cím</label>
+          <input id="email" name="email" type="email" autocomplete="email" required disabled={!configured} />
+        </div>
+        <div class="field">
+          <label for="password">Jelszó</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required disabled={!configured} />
+        </div>
+        <button class="submit" type="submit" disabled={!configured}>Belépés</button>
+      </form>
+    </div>
+  </body>
+</html>

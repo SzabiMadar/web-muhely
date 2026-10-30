@@ -26,6 +26,7 @@ const { eyebrow, title, description, ctaLabel, ctaHref } = Astro.props;
       </a>
     )
   }
+  {Astro.slots.has('status') && <div class="page-status"><slot name="status" /></div>}
 </header>
 
 <style>

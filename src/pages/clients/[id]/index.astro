@@ -1,0 +1,186 @@
+---
+import AppLayout from '../../../layouts/AppLayout.astro';
+import PageHeader from '../../../components/PageHeader.astro';
+import EmptyState from '../../../components/EmptyState.astro';
+import StatusPill from '../../../components/StatusPill.astro';
+import { getClient, listClientProjects } from '../../../lib/server/queries';
+import { WORK_TYPE_LABELS, PROJECT_STATUS_LABELS } from '../../../lib/types';
+import type { ProjectStatus } from '../../../lib/types';
+
+const supabase = Astro.locals.supabase!;
+const client = await getClient(supabase, Astro.params.id!);
+if (!client) {
+  return Astro.redirect('/clients');
+}
+const projects = await listClientProjects(supabase, client.id);
+
+const statusVariant = (status: ProjectStatus) =>
+  status === 'active' ? 'accent' : status === 'paused' ? 'warning' : 'neutral';
+---
+
+<AppLayout title={client.display_name}>
+  <PageHeader
+    eyebrow="Ügyfelek / Ügyféladatlap"
+    title={client.display_name}
+    description={client.company_name ?? undefined}
+    ctaLabel="Szerkesztés"
+    ctaHref={`/clients/${client.id}/edit`}
+  />
+
+  <div class="detail-grid">
+    <section class="card detail-card">
+      <div class="panel-head"><h2>Kapcsolattartó adatok</h2></div>
+      <dl class="fields">
+        <div class="field-row"><dt>Kapcsolattartó</dt><dd>{client.contact_name ?? '—'}</dd></div>
+        <div class="field-row"><dt>E-mail</dt><dd>{client.email ? <a class="text-link" href={`mailto:${client.email}`}>{client.email}</a> : '—'}</dd></div>
+        <div class="field-row"><dt>Telefon</dt><dd>{client.phone ? <a class="text-link" href={`tel:${client.phone}`}>{client.phone}</a> : '—'}</dd></div>
+        <div class="field-row"><dt>Cím</dt><dd>{client.address_text ?? '—'}</dd></div>
+      </dl>
+      {client.notes && <p class="notes"><strong>Megjegyzés:</strong> {client.notes}</p>}
+    </section>
+
+    <section class="card detail-card">
+      <div class="panel-head">
+        <h2>Projektek</h2>
+        <StatusPill variant="neutral" label={`${projects.length} db`} />
+      </div>
+      {
+        projects.length === 0 ? (
+          <EmptyState
+            title="Ehhez az ügyfélhez még nincs projekt."
+            description="Új projekt felvételénél ezt az ügyfelet közvetlenül kiválaszthatod."
+            actionLabel="Új projekt"
+            actionHref="/projects/new"
+          />
+        ) : (
+          <ul class="project-rows" role="list">
+            {projects.map((project) => (
+              <li>
+                <a href={`/projects/${project.id}`} class="project-row">
+                  <span class="project-main">
+                    <strong>{project.title}</strong>
+                    <span class="project-meta">{WORK_TYPE_LABELS[project.work_type]}{project.due_date ? ` · határidő: ${project.due_date}` : ''}</span>
+                  </span>
+                  <StatusPill variant={statusVariant(project.status)} label={PROJECT_STATUS_LABELS[project.status]} />
+                </a>
+              </li>
+            ))}
+          </ul>
+        )
+      }
+    </section>
+  </div>
+</AppLayout>
+
+<style>
+  .detail-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    gap: 24px;
+    align-items: start;
+  }
+
+  .detail-card {
+    padding: 22px 24px;
+  }
+
+  .fields {
+    margin: 16px 0 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .field-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .field-row:last-child {
+    border-bottom: 0;
+  }
+
+  .field-row dt {
+    font-size: 13px;
+    color: var(--muted);
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .field-row dd {
+    margin: 0;
+    font-size: 13.5px;
+    font-weight: 600;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+
+  .notes {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    font-size: 13.5px;
+    color: var(--muted);
+    line-height: 1.55;
+  }
+
+  .notes strong {
+    color: var(--ink);
+  }
+
+  .project-rows {
+    list-style: none;
+    margin: 14px 0 0;
+    padding: 0;
+  }
+
+  .project-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 13px 4px;
+    border-bottom: 1px solid var(--border);
+    transition: transform .12s ease;
+  }
+
+  .project-rows li:last-child .project-row {
+    border-bottom: 0;
+  }
+
+  .project-row:hover {
+    transform: translateX(4px);
+  }
+
+  .project-main {
+    min-width: 0;
+  }
+
+  .project-main strong {
+    display: block;
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .project-meta {
+    display: block;
+    font-size: 12.5px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  .detail-card :global(.empty-state) {
+    border: 0;
+    box-shadow: none;
+    padding: 26px 8px 6px;
+    background: transparent;
+  }
+
+  @media (max-width: 960px) {
+    .detail-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

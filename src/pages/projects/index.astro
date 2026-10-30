@@ -2,21 +2,259 @@
 import AppLayout from '../../layouts/AppLayout.astro';
 import PageHeader from '../../components/PageHeader.astro';
 import EmptyState from '../../components/EmptyState.astro';
+import StatusPill from '../../components/StatusPill.astro';
+import { listProjects } from '../../lib/server/queries';
+import { WORK_TYPE_LABELS, PROJECT_STATUS_LABELS, type ProjectStatus } from '../../lib/types';
+import { PHASES } from '../../lib/phases';
+import type { ProjectWithClient } from '../../lib/server/queries';
+
+const supabase = Astro.locals.supabase!;
+const query = Astro.url.searchParams.get('q')?.trim() ?? '';
+const status = Astro.url.searchParams.get('status') ?? '';
+const projects = await listProjects(supabase, { query: query || undefined, status: status || undefined });
+const hasAnyProject = projects.length > 0 || query || status;
+
+function progressOf(project: ProjectWithClient): { done: number; total: number; nextLabel: string | null } {
+  const total = project.phases.length;
+  const done = project.phases.filter((phase) => phase.status === 'completed' || phase.status === 'skipped').length;
+  const next = project.phases.find((phase) => phase.status === 'in_progress')
+    ?? project.phases.find((phase) => phase.status === 'not_started');
+  const def = next && PHASES.find((phase) => phase.code === next.phase_code);
+  return { done, total, nextLabel: def ? `${def.code} · ${def.title}` : null };
+}
+
+const statusVariant = (s: ProjectStatus) =>
+  s === 'active' ? 'accent' : s === 'paused' ? 'warning' : s === 'cancelled' ? 'danger' : 'neutral';
 ---
 
 <AppLayout title="Projektek">
   <PageHeader
     eyebrow="Portfólió"
     title="Projektek"
-    description="Egy ügyfélhez több projekt is kapcsolódhat — a munkák itt lesznek kereshetők és szűrhetők."
+    description="Egy ügyfélhez több projekt is kapcsolódhat — a munkák itt kereshetők és szűrhetők."
     ctaLabel="Új projekt"
     ctaHref="/projects/new"
   />
 
-  <EmptyState
-    title="Még nincs rögzített projekt."
-    description="A projektek a W1 szeletben lesznek felvihetők, miután az adatbázis-kapcsolat elkészül. Minden projekt a saját ügyfeléhez kötődik, a feladatok külön kezelődnek."
-    actionLabel="Új projekt felvétele"
-    actionHref="/projects/new"
-  />
+  {
+    !hasAnyProject ? (
+      <EmptyState
+        title="Még nincs rögzített projekt."
+        description="A projekt a munka központja: ügyfélhez kötődik, 11 szakmai fázis vezeti végig, és a dossziéjába kerül minden fontos anyag."
+        actionLabel="Első projekt felvétele"
+        actionHref="/projects/new"
+      />
+    ) : (
+      <section class="card project-list">
+        <div class="panel-head">
+          <h2>Projektlista</h2>
+          <form method="GET" action="/projects" class="filters" role="search">
+            <label class="visually-hidden" for="project-search">Projekt keresése</label>
+            <input id="project-search" type="search" name="q" value={query} placeholder="Keresés cím alapján…" />
+            <label class="visually-hidden" for="status-filter">Státusz szűrő</label>
+            <select id="status-filter" name="status" onchange="this.form.submit()">
+              <option value="">Minden státusz</option>
+              {Object.entries(PROJECT_STATUS_LABELS).map(([value, label]) => (
+                <option value={value} selected={status === value}>{label}</option>
+              ))}
+            </select>
+            <button type="submit" class="btn btn-ghost filter-btn">Szűrés</button>
+          </form>
+        </div>
+
+        {projects.length === 0 ? (
+          <p class="no-result">Nincs a szűrésnek megfelelő projekt. <a class="text-link" href="/projects">Szűrés törlése</a></p>
+        ) : (
+          <ul class="rows" role="list">
+            {projects.map((project) => {
+              const { done, total, nextLabel } = progressOf(project);
+              const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+              return (
+                <li>
+                  <a href={`/projects/${project.id}`} class="project-row">
+                    <span class="proj-icon" aria-hidden="true">{project.title.slice(0, 1).toUpperCase()}</span>
+                    <span class="proj-main">
+                      <span class="proj-top">
+                        <strong>{project.title}</strong>
+                        <StatusPill variant={statusVariant(project.status)} label={PROJECT_STATUS_LABELS[project.status]} />
+                      </span>
+                      <span class="proj-meta">
+                        {project.client?.display_name ?? '—'} · {WORK_TYPE_LABELS[project.work_type]}
+                      </span>
+                      <span class="proj-progress">
+                        <span class="bar"><span class="bar-fill" style={`width:${percent}%`}></span></span>
+                        <span class="percent">{percent}%</span>
+                      </span>
+                    </span>
+                    <span class="proj-right">
+                      {nextLabel && <strong>{nextLabel}</strong>}
+                      {project.due_date && <span>{project.due_date}</span>}
+                    </span>
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+    )
+  }
 </AppLayout>
+
+<style>
+  .project-list {
+    padding: 22px 24px;
+  }
+
+  .filters {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .filters input,
+  .filters select {
+    min-height: 40px;
+    padding: 8px 13px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    font: inherit;
+    font-size: 13.5px;
+    background: var(--surface);
+    color: var(--ink);
+  }
+
+  .filters input {
+    width: min(240px, 36vw);
+  }
+
+  .filter-btn {
+    min-height: 40px;
+    padding: 8px 14px;
+  }
+
+  .no-result {
+    padding: 26px 4px 8px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .rows {
+    list-style: none;
+    margin: 14px 0 0;
+    padding: 0;
+  }
+
+  .project-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 4px;
+    border-bottom: 1px solid var(--border);
+    transition: transform .12s ease;
+  }
+
+  .rows li:last-child .project-row {
+    border-bottom: 0;
+  }
+
+  .project-row:hover {
+    transform: translateX(4px);
+  }
+
+  .proj-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: var(--accent-soft);
+    color: var(--accent-deep);
+    display: grid;
+    place-items: center;
+    font-weight: 800;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+
+  .proj-main {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .proj-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .proj-top strong {
+    font-size: 14.5px;
+    font-weight: 700;
+  }
+
+  .proj-meta {
+    display: block;
+    font-size: 12.5px;
+    color: var(--muted);
+    margin-top: 3px;
+  }
+
+  .proj-progress {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+  }
+
+  .bar {
+    flex: 1;
+    max-width: 340px;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--surface-2);
+    overflow: hidden;
+  }
+
+  .bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--accent);
+  }
+
+  .percent {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .proj-right {
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .proj-right strong {
+    display: block;
+    font-size: 12.5px;
+    font-weight: 700;
+  }
+
+  .proj-right span {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 3px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (max-width: 640px) {
+    .proj-right {
+      display: none;
+    }
+
+    .filters {
+      flex-wrap: wrap;
+    }
+  }
+</style>

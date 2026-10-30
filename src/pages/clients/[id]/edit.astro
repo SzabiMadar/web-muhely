@@ -1,0 +1,109 @@
+---
+import { actions, isInputError } from 'astro:actions';
+import AppLayout from '../../../layouts/AppLayout.astro';
+import PageHeader from '../../../components/PageHeader.astro';
+import FormField from '../../../components/FormField.astro';
+import { getClient } from '../../../lib/server/queries';
+
+const supabase = Astro.locals.supabase!;
+const client = await getClient(supabase, Astro.params.id!);
+if (!client) {
+  return Astro.redirect('/clients');
+}
+
+let formError: string | null = null;
+let fieldErrors: Record<string, string[] | undefined> = {};
+let values: Record<string, string> = {
+  display_name: client.display_name,
+  company_name: client.company_name ?? '',
+  contact_name: client.contact_name ?? '',
+  email: client.email ?? '',
+  phone: client.phone ?? '',
+  address_text: client.address_text ?? '',
+  notes: client.notes ?? '',
+};
+
+if (Astro.request.method === 'POST') {
+  const formData = await Astro.request.formData();
+  formData.set('id', client.id);
+  for (const [key, value] of formData.entries()) {
+    if (typeof value === 'string') values[key] = value;
+  }
+  const { data, error } = await Astro.callAction(actions.clients.update, formData);
+  if (data?.clientId) {
+    return Astro.redirect(`/clients/${data.clientId}`);
+  }
+  if (error) {
+    if (isInputError(error)) {
+      fieldErrors = error.fields as Record<string, string[] | undefined>;
+      formError = 'Ellenőrizd a megjelölt mezőket.';
+    } else {
+      formError = error.message ?? 'A mentés nem sikerült — próbáld újra.';
+    }
+  }
+}
+---
+
+<AppLayout title={`${client.display_name} — szerkesztés`}>
+  <PageHeader
+    eyebrow={`Ügyfelek / ${client.display_name}`}
+    title="Ügyfél szerkesztése"
+    description="A módosítások mentés után azonnal érvényesek."
+  />
+
+  <section class="card client-form">
+    {formError && <p class="form-error" role="alert">{formError}</p>}
+
+    <form method="POST" novalidate>
+      <div class="grid-2">
+        <FormField name="display_name" label="Megjelenített név" required maxlength={200} value={values.display_name} error={fieldErrors.display_name?.[0]} />
+        <FormField name="company_name" label="Cég / jogi név" maxlength={200} value={values.company_name} error={fieldErrors.company_name?.[0]} />
+        <FormField name="contact_name" label="Kapcsolattartó" maxlength={200} value={values.contact_name} error={fieldErrors.contact_name?.[0]} />
+        <FormField name="email" label="E-mail" type="email" autocomplete="off" value={values.email} error={fieldErrors.email?.[0]} />
+        <FormField name="phone" label="Telefon" type="tel" autocomplete="off" maxlength={50} value={values.phone} error={fieldErrors.phone?.[0]} />
+        <FormField name="address_text" label="Cím" maxlength={500} value={values.address_text} error={fieldErrors.address_text?.[0]} />
+      </div>
+      <FormField name="notes" label="Megjegyzés" textarea rows={3} value={values.notes} error={fieldErrors.notes?.[0]} />
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Mentés</button>
+        <a href={`/clients/${client.id}`} class="btn btn-ghost">Mégse</a>
+      </div>
+    </form>
+  </section>
+</AppLayout>
+
+<style>
+  .client-form {
+    padding: 24px;
+    max-width: 780px;
+  }
+
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 20px;
+  }
+
+  .form-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+  }
+
+  .form-error {
+    background: var(--danger-soft);
+    color: var(--danger);
+    border-radius: var(--radius-control);
+    padding: 11px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 16px;
+  }
+
+  @media (max-width: 640px) {
+    .grid-2 {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

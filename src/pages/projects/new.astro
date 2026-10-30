@@ -1,57 +1,275 @@
 ---
+import { actions, isInputError } from 'astro:actions';
 import AppLayout from '../../layouts/AppLayout.astro';
 import PageHeader from '../../components/PageHeader.astro';
-import StatusPill from '../../components/StatusPill.astro';
+import FormField from '../../components/FormField.astro';
+import { listClients } from '../../lib/server/queries';
+import { WORK_TYPE_LABELS, type WorkType } from '../../lib/types';
+
+const supabase = Astro.locals.supabase!;
+const clients = await listClients(supabase);
+
+let formError: string | null = null;
+let fieldErrors: Record<string, string[] | undefined> = {};
+const values: Record<string, string> = {};
+
+if (Astro.request.method === 'POST') {
+  const formData = await Astro.request.formData();
+  for (const [key, value] of formData.entries()) {
+    if (typeof value === 'string') values[key] = value;
+  }
+  const { data, error } = await Astro.callAction(actions.projects.create, formData);
+  if (data?.projectId) {
+    return Astro.redirect(`/projects/${data.projectId}`);
+  }
+  if (error) {
+    if (isInputError(error)) {
+      fieldErrors = error.fields as Record<string, string[] | undefined>;
+      formError = 'Ellenőrizd a megjelölt mezőket.';
+    } else {
+      formError = error.message ?? 'A mentés nem sikerült — próbáld újra.';
+    }
+  }
+}
+
+const clientMode = values.client_mode ?? (clients.length === 0 ? 'new' : 'existing');
 ---
 
 <AppLayout title="Új projekt">
   <PageHeader
     eyebrow="Projektek / Új projekt"
     title="Új projekt felvétele"
-    description="A projektlétrehozó űrlap a W1 fejlesztési szeletben készül el, az adatbázis-kapcsolattal együtt."
+    description="Ügyfél, munkatípus és scope — létrehozáskor a 11 fázis állapota automatikusan elkészül."
   />
 
-  <section class="card planned">
-    <div class="panel-head">
-      <h2>Így fog működni</h2>
-      <StatusPill variant="warning" label="W1 szeletben érkezik" />
-    </div>
-    <ul class="planned-list">
-      <li><strong>Ügyfél:</strong> meglévő ügyfél kiválasztása vagy új gyorsfelvétel anélkül, hogy elnavigálnál.</li>
-      <li><strong>Alapadatok:</strong> projektnév, munkatípus — új weboldal, felújítás vagy kisebb fejlesztés.</li>
-      <li><strong>Scope:</strong> rövid leírás és opcionális határidő.</li>
-      <li><strong>Létrehozáskor:</strong> a 11 fázis állapota és a munkatípushoz tartozó feladatlista automatikusan elkészül.</li>
-    </ul>
-    <p class="planned-foot">
-      <a class="text-link" href="/dashboard">Vissza az áttekintéshez</a>
-    </p>
+  <section class="card project-form">
+    {formError && <p class="form-error" role="alert">{formError}</p>}
+
+    <form method="POST" novalidate>
+      <fieldset class="mode-group">
+        <legend>Ügyfél</legend>
+        <div class="mode-options">
+          {clients.length > 0 && (
+            <label class="mode-option">
+              <input type="radio" name="client_mode" value="existing" checked={clientMode === 'existing'} />
+              <span>Meglévő ügyfél</span>
+            </label>
+          )}
+          <label class="mode-option">
+            <input type="radio" name="client_mode" value="new" checked={clientMode === 'new'} />
+            <span>Új ügyfél felvétele</span>
+          </label>
+        </div>
+
+        {clients.length > 0 && (
+          <div class="mode-panel panel-existing">
+            <label class="select-label" for="client_id">Ügyfél kiválasztása</label>
+            <select id="client_id" name="client_id">
+              <option value="">— Válassz —</option>
+              {clients.map((client) => (
+                <option value={client.id} selected={values.client_id === client.id}>
+                  {client.display_name}
+                </option>
+              ))}
+            </select>
+            {fieldErrors.client_id?.[0] && <p class="field-error">{fieldErrors.client_id[0]}</p>}
+          </div>
+        )}
+
+        <div class="mode-panel panel-new">
+          <FormField
+            name="new_client_name"
+            label="Új ügyfél neve"
+            maxlength={200}
+            value={values.new_client_name}
+            error={fieldErrors.new_client_name?.[0]}
+          />
+        </div>
+      </fieldset>
+
+      <FormField
+        name="title"
+        label="Projekt neve"
+        required
+        maxlength={200}
+        hint="Például: Nádor Consult — új weboldal"
+        value={values.title}
+        error={fieldErrors.title?.[0]}
+      />
+
+      <fieldset class="mode-group">
+        <legend>Munkatípus</legend>
+        <div class="mode-options">
+          {(Object.entries(WORK_TYPE_LABELS) as [WorkType, string][]).map(([value, label], index) => (
+            <label class="mode-option">
+              <input
+                type="radio"
+                name="work_type"
+                value={value}
+                checked={(values.work_type ?? 'new_site') === value || (!values.work_type && index === 0)}
+              />
+              <span>{label}</span>
+            </label>
+          ))}
+        </div>
+        {fieldErrors.work_type?.[0] && <p class="field-error">{fieldErrors.work_type[0]}</p>}
+      </fieldset>
+
+      <FormField
+        name="scope_md"
+        label="Scope — rövid leírás"
+        textarea
+        rows={4}
+        hint="Mit tartalmaz a munka, mi a célja. Markdown támogatott."
+        value={values.scope_md}
+        error={fieldErrors.scope_md?.[0]}
+      />
+
+      <div class="grid-2">
+        <FormField
+          name="due_date"
+          label="Határidő"
+          type="date"
+          value={values.due_date}
+          error={fieldErrors.due_date?.[0]}
+        />
+        <FormField
+          name="requirements_md"
+          label="Speciális igények"
+          hint="SEO, teljesítmény, akadálymentesség, CMS, karbantartás…"
+          value={values.requirements_md}
+          error={fieldErrors.requirements_md?.[0]}
+        />
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Projekt létrehozása</button>
+        <a href="/projects" class="btn btn-ghost">Mégse</a>
+      </div>
+    </form>
   </section>
 </AppLayout>
 
 <style>
-  .planned {
-    padding: 22px 24px;
-    max-width: 720px;
+  .project-form {
+    padding: 24px;
+    max-width: 780px;
   }
 
-  .planned-list {
-    margin: 18px 0 0;
-    padding-left: 20px;
+  .mode-group {
+    border: 0;
+    margin: 0 0 18px;
+    padding: 0;
+  }
+
+  .mode-group legend {
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    padding: 0;
+  }
+
+  .mode-options {
     display: flex;
-    flex-direction: column;
-    gap: 12px;
-    color: var(--muted);
-    font-size: 14px;
-    line-height: 1.55;
+    gap: 10px;
+    flex-wrap: wrap;
   }
 
-  .planned-list strong {
+  .mode-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--surface);
+    transition: border-color .15s ease, background-color .15s ease;
+    min-height: 44px;
+  }
+
+  .mode-option:hover {
+    background: var(--surface-2);
+  }
+
+  .mode-option:has(input:checked) {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent-deep);
+  }
+
+  .mode-option input {
+    accent-color: var(--accent);
+  }
+
+  .mode-panel {
+    margin-top: 14px;
+  }
+
+  .select-label {
+    display: block;
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+
+  .panel-existing select {
+    width: 100%;
+    max-width: 380px;
+    min-height: 44px;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    font: inherit;
+    font-size: 14px;
+    background: var(--surface);
     color: var(--ink);
   }
 
-  .planned-foot {
-    margin-top: 22px;
-    padding-top: 14px;
-    border-top: 1px solid var(--border);
+  .panel-existing select:focus-visible {
+    outline: 3px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  form:not(:has(input[name='client_mode'][value='new']:checked)) .panel-new,
+  form:has(input[name='client_mode'][value='new']:checked) .panel-existing {
+    display: none;
+  }
+
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 20px;
+  }
+
+  .field-error {
+    font-size: 12.5px;
+    color: var(--danger);
+    font-weight: 600;
+    margin: 6px 0 0;
+  }
+
+  .form-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+  }
+
+  .form-error {
+    background: var(--danger-soft);
+    color: var(--danger);
+    border-radius: var(--radius-control);
+    padding: 11px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 16px;
+  }
+
+  @media (max-width: 640px) {
+    .grid-2 {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

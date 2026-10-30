@@ -4,6 +4,28 @@ import PageHeader from '../components/PageHeader.astro';
 import EmptyState from '../components/EmptyState.astro';
 import StatusPill from '../components/StatusPill.astro';
 import { PHASES, PHASE_CHAPTERS, getPhasesByChapter } from '../lib/phases';
+import { listProjects, type ProjectWithClient } from '../lib/server/queries';
+import { WORK_TYPE_LABELS } from '../lib/types';
+
+const supabase = Astro.locals.supabase!;
+const projects = await listProjects(supabase);
+const activeProjects = projects.filter((p) => p.status === 'active' || p.status === 'draft');
+const today = new Date().toISOString().slice(0, 10);
+
+function nextStep(project: ProjectWithClient): string | null {
+  const next = project.phases.find((p) => p.status === 'in_progress')
+    ?? project.phases.find((p) => p.status === 'not_started');
+  const def = next && PHASES.find((p) => p.code === next.phase_code);
+  return def ? `${def.code} · ${def.title}` : null;
+}
+
+function progress(project: ProjectWithClient): number {
+  if (project.phases.length === 0) return 0;
+  const done = project.phases.filter((p) => p.status === 'completed' || p.status === 'skipped').length;
+  return Math.round((done / project.phases.length) * 100);
+}
+
+const attention = activeProjects.filter((p) => p.due_date && p.due_date < today);
 ---
 
 <AppLayout title="Áttekintés">
@@ -15,84 +37,328 @@ import { PHASES, PHASE_CHAPTERS, getPhasesByChapter } from '../lib/phases';
     ctaHref="/projects/new"
   />
 
-  <EmptyState
-    title="A munkaterület még üres."
-    description="Itt jelennek majd meg az aktív projektjeid, a következő szakmai teendőid és a legutóbb használt projektanyagok. Az első lépés egy ügyfél, utána egy projekt felvétele."
-    note="Az ügyfél- és projektadatok tárolása a W1 fejlesztési szeletben kapcsolódik a Supabase adatbázishoz — a felviteli űrlapok addig még nem érhetők el."
-  />
+  {
+    projects.length === 0 ? (
+      <>
+        <EmptyState
+          title="A munkaterület még üres."
+          description="Itt jelennek majd meg az aktív projektjeid, a következő szakmai teendőid és a legutóbb használt projektanyagok. Az első lépés egy ügyfél, utána egy projekt felvétele."
+          actionLabel="Első ügyfél hozzáadása"
+          actionHref="/clients/new"
+          secondaryLabel="Új projekt felvétele"
+          secondaryHref="/projects/new"
+        />
 
-  <div class="dashboard-grid">
-    <section class="card methodology">
-      <div class="panel-head">
-        <h2>Műhely módszertan</h2>
-        <StatusPill variant="neutral" label={`${PHASES.length} fázis`} />
-      </div>
-      <div class="chapters">
-        {
-          PHASE_CHAPTERS.map((chapter) => (
-            <div class="chapter">
-              <h3>{chapter.title}</h3>
-              <ol>
-                {getPhasesByChapter(chapter).map((phase) => (
-                  <li>
-                    <span class="phase-code">{phase.code}</span>
-                    <div>
-                      <strong>{phase.title}</strong>
-                      <span class="phase-summary">{phase.summary}</span>
-                    </div>
-                  </li>
-                ))}
-              </ol>
+        <div class="dashboard-grid">
+          <section class="card methodology">
+            <div class="panel-head">
+              <h2>Műhely módszertan</h2>
+              <StatusPill variant="neutral" label={`${PHASES.length} fázis`} />
             </div>
-          ))
-        }
-      </div>
-      <p class="methodology-foot">
-        Vezetett szakmai fázisok — a playbook a projekt típusához igazodik, nem minden lépés kötelező minden munkában.
-      </p>
-    </section>
+            <div class="chapters">
+              {
+                PHASE_CHAPTERS.map((chapter) => (
+                  <div class="chapter">
+                    <h3>{chapter.title}</h3>
+                    <ol>
+                      {getPhasesByChapter(chapter).map((phase) => (
+                        <li>
+                          <span class="phase-code">{phase.code}</span>
+                          <div>
+                            <strong>{phase.title}</strong>
+                            <span class="phase-summary">{phase.summary}</span>
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                ))
+              }
+            </div>
+            <p class="methodology-foot">
+              Vezetett szakmai fázisok — a playbook a projekt típusához igazodik, nem minden lépés kötelező minden munkában.
+            </p>
+          </section>
+        </div>
+      </>
+    ) : (
+      <>
+        <div class="stats">
+          <div class="card stat">
+            <p class="stat-label">Aktív projektek</p>
+            <p class="stat-value">{String(activeProjects.length).padStart(2, '0')}</p>
+            <p class="stat-sub">{projects.length - activeProjects.length > 0 ? `${projects.length - activeProjects.length} lezárt vagy szünetelő` : 'minden projekt folyamatban'}</p>
+          </div>
+          <div class="card stat">
+            <p class="stat-label">Következő teendők</p>
+            <p class="stat-value">{String(activeProjects.filter((p) => nextStep(p)).length).padStart(2, '0')}</p>
+            <p class="stat-sub">a projektek aktuális fázisaiból</p>
+          </div>
+          <div class="card stat">
+            <p class="stat-label">Figyelmet igényel</p>
+            <p class="stat-value">{String(attention.length).padStart(2, '0')}</p>
+            <p class="stat-sub">{attention.length > 0 ? 'lejárt határidővel' : 'nincs lejárt határidő'}</p>
+          </div>
+        </div>
 
-    <section class="card status-panel">
-      <div class="panel-head">
-        <h2>Kapcsolat állapota</h2>
-        <StatusPill variant="warning" label="Nincs konfigurálva" />
-      </div>
-      <p class="status-desc">
-        A Supabase adatkapcsolat még nincs bekötve. A W1 szelet hozza létre az adatbázis-sémát, a hitelesítést és a sor-szintű jogosultságokat.
-      </p>
-      <dl class="status-list">
-        <div class="status-row">
-          <dt>Supabase Auth</dt>
-          <dd><StatusPill variant="neutral" label="W1" /></dd>
+        <div class="dashboard-grid">
+          <section class="card project-panel">
+            <div class="panel-head">
+              <h2>Folyamatban lévő projektek</h2>
+              <a class="text-link" href="/projects">Összes projekt</a>
+            </div>
+            <ul class="rows" role="list">
+              {activeProjects.map((project) => {
+                const percent = progress(project);
+                const next = nextStep(project);
+                const overdue = project.due_date && project.due_date < today;
+                return (
+                  <li>
+                    <a href={`/projects/${project.id}`} class="project-row">
+                      <span class="proj-icon" aria-hidden="true">{project.title.slice(0, 1).toUpperCase()}</span>
+                      <span class="proj-main">
+                        <span class="proj-top">
+                          <strong>{project.title}</strong>
+                          {overdue && <StatusPill variant="danger" label="Lejárt határidő" />}
+                        </span>
+                        <span class="proj-meta">
+                          {project.client?.display_name ?? '—'} · {WORK_TYPE_LABELS[project.work_type]}
+                        </span>
+                        <span class="proj-progress">
+                          <span class="bar"><span class="bar-fill" style={`width:${percent}%`}></span></span>
+                          <span class="percent">{percent}%</span>
+                        </span>
+                      </span>
+                      <span class="proj-right">
+                        {next && <strong>{next}</strong>}
+                        {project.due_date && <span>{project.due_date}</span>}
+                      </span>
+                    </a>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+
+          <section class="card focus-panel">
+            <div class="panel-head">
+              <h2>Mai fókusz</h2>
+            </div>
+            {
+              (() => {
+                const top = activeProjects.find((p) => nextStep(p));
+                if (!top) {
+                  return <p class="focus-empty">Minden aktív projekt minden fázisa lezárva — itt az ideje az átadásnak vagy új munka felvételének.</p>;
+                }
+                const next = nextStep(top)!;
+                return (
+                  <div class="focus-box">
+                    <p class="focus-label">Következő ajánlott lépés</p>
+                    <h3>{next}</h3>
+                    <p class="focus-meta">{top.title} · {top.client?.display_name ?? ''}</p>
+                    <a class="btn btn-primary focus-btn" href={`/projects/${top.id}`}>Projekt megnyitása</a>
+                  </div>
+                );
+              })()
+            }
+          </section>
         </div>
-        <div class="status-row">
-          <dt>PostgreSQL adattár</dt>
-          <dd><StatusPill variant="neutral" label="W1" /></dd>
-        </div>
-        <div class="status-row">
-          <dt>Privát fájltároló</dt>
-          <dd><StatusPill variant="neutral" label="W3" /></dd>
-        </div>
-      </dl>
-      <p class="status-foot">
-        Jelszavakat és API-kulcsokat a Műhely nem tárol — csak a külső jelszókezelőben lévő rekordok referenciáit.
-      </p>
-    </section>
-  </div>
+      </>
+    )
+  }
 </AppLayout>
 
 <style>
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    margin-bottom: 24px;
+  }
+
+  .stat {
+    padding: 20px 22px;
+  }
+
+  .stat-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--muted);
+  }
+
+  .stat-value {
+    font-size: 36px;
+    font-weight: 800;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+    margin-top: 10px;
+  }
+
+  .stat-sub {
+    font-size: 12.5px;
+    color: var(--muted);
+    margin-top: 6px;
+  }
+
   .dashboard-grid {
     display: grid;
     grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
     gap: 24px;
-    margin-top: 24px;
     align-items: start;
   }
 
-  .methodology,
-  .status-panel {
+  .project-panel,
+  .focus-panel,
+  .methodology {
     padding: 22px 24px;
+  }
+
+  .rows {
+    list-style: none;
+    margin: 14px 0 0;
+    padding: 0;
+  }
+
+  .project-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 4px;
+    border-bottom: 1px solid var(--border);
+    transition: transform .12s ease;
+  }
+
+  .rows li:last-child .project-row {
+    border-bottom: 0;
+  }
+
+  .project-row:hover {
+    transform: translateX(4px);
+  }
+
+  .proj-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: var(--accent-soft);
+    color: var(--accent-deep);
+    display: grid;
+    place-items: center;
+    font-weight: 800;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+
+  .proj-main {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .proj-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .proj-top strong {
+    font-size: 14.5px;
+    font-weight: 700;
+  }
+
+  .proj-meta {
+    display: block;
+    font-size: 12.5px;
+    color: var(--muted);
+    margin-top: 3px;
+  }
+
+  .proj-progress {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+  }
+
+  .bar {
+    flex: 1;
+    max-width: 340px;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--surface-2);
+    overflow: hidden;
+  }
+
+  .bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--accent);
+  }
+
+  .percent {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .proj-right {
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .proj-right strong {
+    display: block;
+    font-size: 12.5px;
+    font-weight: 700;
+  }
+
+  .proj-right span {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 3px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .focus-box {
+    margin-top: 16px;
+    background: var(--accent-soft);
+    border-radius: var(--radius-card);
+    padding: 18px;
+  }
+
+  .focus-label {
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--accent-deep);
+  }
+
+  .focus-box h3 {
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: -.01em;
+    margin-top: 8px;
+  }
+
+  .focus-meta {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
+  .focus-btn {
+    margin-top: 14px;
+  }
+
+  .focus-empty {
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.55;
+    margin-top: 14px;
   }
 
   .chapters {
@@ -152,49 +418,13 @@ import { PHASES, PHASE_CHAPTERS, getPhasesByChapter } from '../lib/phases';
     line-height: 1.45;
   }
 
-  .methodology-foot,
-  .status-foot {
+  .methodology-foot {
     margin-top: 20px;
     padding-top: 14px;
     border-top: 1px solid var(--border);
     font-size: 12.5px;
     color: var(--muted);
     line-height: 1.5;
-  }
-
-  .status-desc {
-    color: var(--muted);
-    font-size: 14px;
-    margin-top: 14px;
-    line-height: 1.55;
-  }
-
-  .status-list {
-    margin: 18px 0 0;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .status-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 10px 0;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .status-row:last-child {
-    border-bottom: 0;
-  }
-
-  .status-row dt {
-    font-size: 13.5px;
-    font-weight: 600;
-  }
-
-  .status-row dd {
-    margin: 0;
   }
 
   @media (max-width: 1080px) {
@@ -204,8 +434,16 @@ import { PHASES, PHASE_CHAPTERS, getPhasesByChapter } from '../lib/phases';
   }
 
   @media (max-width: 640px) {
+    .stats {
+      grid-template-columns: 1fr;
+    }
+
     .chapters {
       grid-template-columns: 1fr;
+    }
+
+    .proj-right {
+      display: none;
     }
   }
 </style>

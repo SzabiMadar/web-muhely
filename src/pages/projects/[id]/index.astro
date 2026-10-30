@@ -1,0 +1,320 @@
+---
+import { actions, isInputError } from 'astro:actions';
+import AppLayout from '../../../layouts/AppLayout.astro';
+import PageHeader from '../../../components/PageHeader.astro';
+import StatusPill from '../../../components/StatusPill.astro';
+import ProjectTabs from '../../../components/ProjectTabs.astro';
+import FormField from '../../../components/FormField.astro';
+import { getProjectOverview } from '../../../lib/server/queries';
+import { WORK_TYPE_LABELS, PROJECT_STATUS_LABELS, type ProjectStatus } from '../../../lib/types';
+import { PHASES } from '../../../lib/phases';
+
+const supabase = Astro.locals.supabase!;
+const project = await getProjectOverview(supabase, Astro.params.id!);
+if (!project) {
+  return Astro.redirect('/projects');
+}
+
+let formError: string | null = null;
+let fieldErrors: Record<string, string[] | undefined> = {};
+
+if (Astro.request.method === 'POST') {
+  const formData = await Astro.request.formData();
+  formData.set('id', project.id);
+  const { data, error } = await Astro.callAction(actions.projects.update, formData);
+  if (data?.projectId) {
+    return Astro.redirect(`/projects/${data.projectId}`);
+  }
+  if (error) {
+    if (isInputError(error)) {
+      fieldErrors = error.fields as Record<string, string[] | undefined>;
+      formError = 'Ellenőrizd a megjelölt mezőket.';
+    } else {
+      formError = error.message ?? 'A mentés nem sikerült — próbáld újra.';
+    }
+  }
+}
+
+const total = project.phases.length;
+const finished = project.phases.filter((p) => p.status === 'completed' || p.status === 'skipped').length;
+const percent = total > 0 ? Math.round((finished / total) * 100) : 0;
+const nextPhase = project.phases.find((p) => p.status === 'in_progress')
+  ?? project.phases.find((p) => p.status === 'not_started');
+const nextPhaseDef = nextPhase && PHASES.find((p) => p.code === nextPhase.phase_code);
+const currentPhaseDef = project.phases.find((p) => p.status === 'in_progress');
+const currentPhaseTitle = currentPhaseDef
+  ? PHASES.find((p) => p.code === currentPhaseDef.phase_code)
+  : null;
+
+const statusVariant = (s: ProjectStatus) =>
+  s === 'active' ? 'accent' : s === 'paused' ? 'warning' : s === 'cancelled' ? 'danger' : 'neutral';
+---
+
+<AppLayout title={project.title}>
+  <PageHeader
+    eyebrow={`Ügyfelek / ${project.client?.display_name ?? 'Ügyfél'} / Projekt`}
+    title={project.title}
+    description={`${WORK_TYPE_LABELS[project.work_type]}${project.due_date ? ` · határidő: ${project.due_date}` : ''}`}
+  >
+    <StatusPill slot="status" variant={statusVariant(project.status)} label={PROJECT_STATUS_LABELS[project.status]} />
+  </PageHeader>
+
+  <ProjectTabs projectId={project.id} active="overview" />
+
+  <div class="overview-grid">
+    <section class="card progress-card">
+      <div class="panel-head">
+        <h2>Projekt haladása</h2>
+        <StatusPill variant="neutral" label={`${finished} / ${total} fázis`} />
+      </div>
+      <p class="big-percent">{percent}% <span>fázisállapot alapján</span></p>
+      <div class="phasebar" role="img" aria-label={`${finished} fázis kész a ${total}-ból`}>
+        {
+          project.phases.map((phase) => (
+            <span
+              class={`seg seg-${phase.status}`}
+              title={`${phase.phase_code} — ${phase.status}`}
+            ></span>
+          ))
+        }
+      </div>
+      <p class="phase-note">
+        Aktuális szakasz: <strong>{currentPhaseTitle ? `${currentPhaseTitle.code}. ${currentPhaseTitle.title}` : 'Még nincs elindított fázis'}</strong>
+      </p>
+      {
+        nextPhaseDef ? (
+          <div class="next-step">
+            <strong>Következő lépés: {nextPhaseDef.code}. {nextPhaseDef.title}</strong>
+            <p>{nextPhaseDef.summary}</p>
+            <a class="text-link" href={`/projects/${project.id}/workflow`}>Folyamat megnyitása</a>
+          </div>
+        ) : (
+          <div class="next-step">
+            <strong>Minden fázis lezárva.</strong>
+            <p>A projekt átadási nézete a következő lépést és a záró összefoglalót mutatja.</p>
+          </div>
+        )
+      }
+    </section>
+
+    <section class="card edit-card">
+      <details class="edit-details">
+        <summary>Alapadatok szerkesztése</summary>
+        {formError && <p class="form-error" role="alert">{formError}</p>}
+        <form method="POST" novalidate class="edit-form">
+          <FormField
+            name="title"
+            label="Projekt neve"
+            required
+            maxlength={200}
+            value={project.title}
+            error={fieldErrors.title?.[0]}
+          />
+          <div class="edit-row">
+            <div class="form-field">
+              <label for="project-status">Státusz</label>
+              <select id="project-status" name="status">
+                {Object.entries(PROJECT_STATUS_LABELS).map(([value, label]) => (
+                  <option value={value} selected={project.status === value}>{label}</option>
+                ))}
+              </select>
+            </div>
+            <FormField
+              name="due_date"
+              label="Határidő"
+              type="date"
+              value={project.due_date ?? ''}
+              error={fieldErrors.due_date?.[0]}
+            />
+          </div>
+          <FormField name="scope_md" label="Scope leírás" textarea rows={3} value={project.scope_md ?? ''} />
+          <FormField name="requirements_md" label="Speciális igények" textarea rows={2} value={project.requirements_md ?? ''} />
+          <button type="submit" class="btn btn-primary">Mentés</button>
+        </form>
+      </details>
+      <dl class="meta-list">
+        <div class="meta-row"><dt>Ügyfél</dt><dd>{project.client ? <a class="text-link" href={`/clients/${project.client.id}`}>{project.client.display_name}</a> : '—'}</dd></div>
+        <div class="meta-row"><dt>Munkatípus</dt><dd>{WORK_TYPE_LABELS[project.work_type]}</dd></div>
+        <div class="meta-row"><dt>Létrehozva</dt><dd>{new Date(project.created_at).toLocaleDateString('hu-HU')}</dd></div>
+        <div class="meta-row"><dt>Határidő</dt><dd>{project.due_date ?? '—'}</dd></div>
+      </dl>
+    </section>
+  </div>
+</AppLayout>
+
+<style>
+  .overview-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+    gap: 24px;
+    align-items: start;
+  }
+
+  .progress-card,
+  .edit-card {
+    padding: 22px 24px;
+  }
+
+  .big-percent {
+    font-size: 34px;
+    font-weight: 800;
+    letter-spacing: -.02em;
+    margin-top: 16px;
+  }
+
+  .big-percent span {
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0;
+    color: var(--muted);
+  }
+
+  .phasebar {
+    display: flex;
+    gap: 6px;
+    margin-top: 14px;
+  }
+
+  .seg {
+    flex: 1;
+    height: 8px;
+    border-radius: 4px;
+    background: var(--surface-2);
+  }
+
+  .seg-completed {
+    background: var(--accent);
+  }
+
+  .seg-in_progress {
+    background: var(--warning);
+  }
+
+  .seg-skipped {
+    background: var(--border);
+  }
+
+  .phase-note {
+    margin-top: 16px;
+    font-size: 13.5px;
+    color: var(--muted);
+  }
+
+  .phase-note strong {
+    color: var(--ink);
+  }
+
+  .next-step {
+    margin-top: 16px;
+    background: var(--accent-soft);
+    border-radius: var(--radius-control);
+    padding: 14px 16px;
+  }
+
+  .next-step strong {
+    font-size: 14px;
+    font-weight: 700;
+    display: block;
+  }
+
+  .next-step p {
+    font-size: 13px;
+    color: var(--muted);
+    margin: 6px 0 8px;
+  }
+
+  .edit-details summary {
+    font-size: 13.5px;
+    font-weight: 700;
+    cursor: pointer;
+    color: var(--accent-deep);
+    list-style-position: inside;
+    padding: 4px 0;
+  }
+
+  .edit-details summary:focus-visible {
+    outline: 3px solid var(--focus-ring);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  .edit-form {
+    margin-top: 16px;
+  }
+
+  .edit-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 16px;
+  }
+
+  .form-field label {
+    display: block;
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+
+  .form-field select {
+    width: 100%;
+    min-height: 44px;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    font: inherit;
+    font-size: 14px;
+    background: var(--surface);
+    color: var(--ink);
+  }
+
+  .form-field {
+    margin-bottom: 18px;
+  }
+
+  .meta-list {
+    margin: 18px 0 0;
+    border-top: 1px solid var(--border);
+    padding-top: 6px;
+  }
+
+  .meta-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .meta-row:last-child {
+    border-bottom: 0;
+  }
+
+  .meta-row dt {
+    font-size: 13px;
+    color: var(--muted);
+    font-weight: 600;
+  }
+
+  .meta-row dd {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: right;
+  }
+
+  .form-error {
+    background: var(--danger-soft);
+    color: var(--danger);
+    border-radius: var(--radius-control);
+    padding: 11px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    margin: 12px 0;
+  }
+
+  @media (max-width: 960px) {
+    .overview-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

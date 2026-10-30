@@ -1,0 +1,26 @@
+---
+import AppLayout from '../../../layouts/AppLayout.astro';
+import PageHeader from '../../../components/PageHeader.astro';
+import ProjectTabs from '../../../components/ProjectTabs.astro';
+import PlannedFeature from '../../../components/PlannedFeature.astro';
+import { getProjectOverview } from '../../../lib/server/queries';
+
+const supabase = Astro.locals.supabase!;
+const project = await getProjectOverview(supabase, Astro.params.id!);
+if (!project) {
+  return Astro.redirect('/projects');
+}
+---
+
+<AppLayout title={`${project.title} — Folyamat`}>
+  <PageHeader
+    eyebrow={project.client?.display_name ?? 'Projekt'}
+    title={project.title}
+  />
+  <ProjectTabs projectId={project.id} active="workflow" />
+  <PlannedFeature
+    wave="W2"
+    title="Vezetett munkafolyamat"
+    description="Itt jelenik meg a 11 fázisos szakmai playbook a projekttípushoz rendelt feladatokkal, kézi státusz- és QA-jelöléssel. A fázisok már rögzültek a projekt létrehozásakor — a feladatlista a W2 szeletben kapcsolódik."
+  />
+</AppLayout>

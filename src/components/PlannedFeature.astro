@@ -1,0 +1,42 @@
+---
+import StatusPill from './StatusPill.astro';
+
+interface Props {
+  wave: string;
+  title: string;
+  description: string;
+}
+
+const { wave, title, description } = Astro.props;
+---
+
+<section class="card planned-feature">
+  <div class="panel-head">
+    <h2>{title}</h2>
+    <StatusPill variant="warning" label={`${wave} szeletben érkezik`} />
+  </div>
+  <p class="planned-desc">{description}</p>
+  <p class="planned-foot">
+    <a class="text-link" href="/projects">Vissza a projektekhez</a>
+  </p>
+</section>
+
+<style>
+  .planned-feature {
+    padding: 22px 24px;
+    max-width: 720px;
+  }
+
+  .planned-desc {
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.55;
+    margin-top: 14px;
+  }
+
+  .planned-foot {
+    margin-top: 20px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+</style>

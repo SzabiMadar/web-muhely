@@ -3,6 +3,7 @@ import AppLayout from '../layouts/AppLayout.astro';
 import PageHeader from '../components/PageHeader.astro';
 import StatusPill from '../components/StatusPill.astro';
 
+const configured = Astro.locals.isSupabaseConfigured;
 const envKeys = ['PUBLIC_SUPABASE_URL', 'PUBLIC_SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY'] as const;
 ---
 
@@ -17,29 +18,39 @@ const envKeys = ['PUBLIC_SUPABASE_URL', 'PUBLIC_SUPABASE_ANON_KEY', 'SUPABASE_SE
     <section class="card settings-card">
       <div class="panel-head">
         <h2>Supabase kapcsolat</h2>
-        <StatusPill variant="warning" label="Nincs konfigurálva" />
+        {
+          configured ? (
+            <StatusPill variant="accent" label="Konfigurálva" />
+          ) : (
+            <StatusPill variant="warning" label="Nincs konfigurálva" />
+          )
+        }
       </div>
       <p class="settings-desc">
-        A hitelesítés, az adatbázis és a privát fájltároló bekötése a W1 szelet feladata. A kapcsolathoz az alábbi környezeti változók kellenek — a minta az
-        <code>.env.example</code> fájlban található.
+        {
+          configured
+            ? 'A környezeti változók be vannak állítva; a hitelesítés és az adatelérés a bejelentkezett munkameneten keresztül, sor-szintű jogosultságokkal működik.'
+            : 'A Supabase kapcsolat még nincs bekötve. A kapcsolathoz az alábbi környezeti változók kellenek — a minta az .env.example fájlban található.'
+        }
       </p>
       <ul class="env-list">
         {envKeys.map((key) => <li><code>{key}</code></li>)}
       </ul>
       <p class="settings-note">
-        A service role kulcs kizárólag szerveroldalon használható. Jelszavakat, tokeneket és privát kulcsokat az alkalmazás soha nem tárol.
+        A service role kulcs kizárólag szerveroldalon használható, és csak indokolt feladathoz. Jelszavakat, tokeneket és privát kulcsokat az alkalmazás soha nem tárol.
       </p>
     </section>
 
     <section class="card settings-card">
       <div class="panel-head">
         <h2>Fejlesztési állapot</h2>
-        <StatusPill variant="accent" label="W0 — Alapok" />
+        <StatusPill variant="accent" label="W1 — Alapok" />
       </div>
       <dl class="stack-list">
         <div class="stack-row"><dt>Keretrendszer</dt><dd>Astro SSR · TypeScript strict</dd></div>
         <div class="stack-row"><dt>Hosting</dt><dd>Netlify (@astrojs/netlify adapter)</dd></div>
-        <div class="stack-row"><dt>Következő szelet</dt><dd>W1 — bejelentkezés, ügyfelek, projektek</dd></div>
+        <div class="stack-row"><dt>Adatréteg</dt><dd>Supabase Auth + PostgreSQL (RLS)</dd></div>
+        <div class="stack-row"><dt>Következő szelet</dt><dd>W2 — projektáttekintés + 11 fázisú playbook</dd></div>
       </dl>
     </section>
   </div>

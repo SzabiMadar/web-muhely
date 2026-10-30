@@ -1,12 +1,24 @@
 ---
+import { actions } from 'astro:actions';
 import Icon from './Icon.astro';
 import { PRIMARY_NAV, isActiveNav } from '../lib/navigation';
+import type { ProjectWithClient } from '../lib/server/queries';
+import { PHASES } from '../lib/phases';
 
 interface Props {
   currentPath: string;
+  recentProjects: ProjectWithClient[];
+  userEmail: string | null;
 }
 
-const { currentPath } = Astro.props;
+const { currentPath, recentProjects, userEmail } = Astro.props;
+
+function phaseLabel(project: ProjectWithClient): string {
+  const current = project.phases.find((phase) => phase.status === 'in_progress')
+    ?? project.phases.find((phase) => phase.status === 'not_started');
+  const def = current && PHASES.find((phase) => phase.code === current.phase_code);
+  return def ? `${def.code} · ${def.title}` : '—';
+}
 ---
 
 <aside class="sidebar">
@@ -40,15 +52,31 @@ const { currentPath } = Astro.props;
 
   <div class="side-recent">
     <p class="side-heading">Legutóbbi projektek</p>
-    <p class="side-empty">Még nincs projekted — az első felvétele után itt jelennek meg a legutóbb megnyitottak.</p>
+    {
+      recentProjects.length === 0 ? (
+        <p class="side-empty">Még nincs projekted — az első felvétele után itt jelennek meg a legutóbb megnyitottak.</p>
+      ) : (
+        recentProjects.map((project) => (
+          <a href={`/projects/${project.id}`} class="side-project">
+            {project.title}
+            <span>{phaseLabel(project)}</span>
+          </a>
+        ))
+      )
+    }
   </div>
 
   <div class="side-bottom">
-    <span class="avatar" aria-hidden="true">SZ</span>
+    <span class="avatar" aria-hidden="true">{userEmail ? userEmail.slice(0, 2).toUpperCase() : 'M'}</span>
     <div class="side-user">
-      <strong>Saját munkatér</strong>
+      <strong>{userEmail ?? 'Saját munkatér'}</strong>
       <small>Egyfelhasználós nézet</small>
     </div>
+    <form method="POST" action={actions.auth.signOut} class="signout">
+      <button type="submit" class="signout-btn" title="Kijelentkezés" aria-label="Kijelentkezés">
+        <Icon name="arrow" size={16} />
+      </button>
+    </form>
   </div>
 </aside>
 
@@ -155,6 +183,33 @@ const { currentPath } = Astro.props;
     border-left: 2px solid #345044;
   }
 
+  .side-project {
+    display: block;
+    border-left: 2px solid #527B62;
+    padding: 8px 12px 8px 13px;
+    margin: 5px 9px;
+    color: #D9E5DD;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .side-project:hover {
+    color: #fff;
+    border-left-color: #D5EAD8;
+  }
+
+  .side-project span {
+    display: block;
+    font-size: 10px;
+    color: #8FA89A;
+    margin-top: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .side-bottom {
     margin-top: auto;
     border-top: 1px solid #345044;
@@ -177,10 +232,18 @@ const { currentPath } = Astro.props;
     flex-shrink: 0;
   }
 
+  .side-user {
+    min-width: 0;
+    flex: 1;
+  }
+
   .side-user strong {
     display: block;
     font-size: 13px;
     font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .side-user small {
@@ -188,6 +251,28 @@ const { currentPath } = Astro.props;
     color: #8FA89A;
     font-size: 11px;
     margin-top: 1px;
+  }
+
+  .signout {
+    margin: 0;
+    flex-shrink: 0;
+  }
+
+  .signout-btn {
+    width: 34px;
+    height: 34px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--sidebar-muted);
+    display: grid;
+    place-items: center;
+    transition: background-color .15s ease, color .15s ease;
+  }
+
+  .signout-btn:hover {
+    background: #243C31;
+    color: #fff;
   }
 
   @media (max-width: 860px) {
