@@ -6,7 +6,7 @@ const base: HandoverInput = {
   project: {
     id: 'p1', owner_id: 'u1', client_id: 'c1',
     title: 'Teszt weboldal', work_type: 'new_site', status: 'delivered',
-    scope_md: 'Scope szöveg', requirements_md: null,
+    scope_md: 'BELSŐ_JELZŐ_123 scope', requirements_md: 'BELSŐ_JELZŐ_123 követelmény',
     due_date: '2026-12-15', closure_notes: 'Záró szöveg',
     feedback_notes: 'Elégedett', closed_at: '2026-11-01T10:00:00Z',
     invoice_ref: 'SZ-2026-042', created_at: '', updated_at: '',
@@ -27,7 +27,8 @@ const base: HandoverInput = {
     { id: 'r2', owner_id: 'u1', project_id: 'p1', kind: 'access', provider: 'Netlify', label: 'Hosting', url: 'https://app.netlify.com', object_path: null, username: 'szabo', vault_ref: '1PW > hosting', note: null, created_at: '', updated_at: '' },
   ],
   notes: [
-    { id: 'n1', owner_id: 'u1', project_id: 'p1', phase_code: '01', title: 'Brief jegyzet', body_md: 'Jegyzet törzs', created_at: '', updated_at: '' },
+    { id: 'n1', owner_id: 'u1', project_id: 'p1', phase_code: '01', client_visible: true, title: 'Megosztott jegyzet', body_md: 'Ügyfélnek szánt törzs', created_at: '', updated_at: '' },
+    { id: 'n2', owner_id: 'u1', project_id: 'p1', phase_code: null, client_visible: false, title: 'BELSŐ_JELZŐ_123', body_md: 'BELSŐ_JELZŐ_123 törzs', created_at: '', updated_at: '' },
   ],
   verificationKeys: new Set(['p09-func', 'p09-resp']),
   audience: 'client',
@@ -41,7 +42,6 @@ describe('buildHandoverMarkdown', () => {
     expect(md).toContain('# Átadási dokumentum — Teszt weboldal');
     expect(md).toContain('**Ügyfél:** Fenyő Studio');
     expect(md).toContain('SZ-2026-042');
-    expect(md).toContain('Scope szöveg');
   });
 
   it('QA: failed és not_tested külön szekcióban, csak releváns tételek', () => {
@@ -61,17 +61,32 @@ describe('buildHandoverMarkdown', () => {
     expect(md).toContain('[teendő] Ellenőrizetlen QA');
   });
 
-  it('client riport: nincs vault_ref és username', () => {
-    expect(md).toContain('**Hosting** — Netlify');
+  it('client riport: hozzáférési szekció és belső mezők teljesen kizárva', () => {
+    expect(md).not.toContain('Hozzáférési térkép');
+    expect(md).not.toContain('Hosting');
     expect(md).not.toContain('vault: 1PW');
     expect(md).not.toContain('szabo');
-    expect(md).toContain('belső fiókazonosítók');
+    expect(md).toContain('hozzáférési térkép a műhely-dossziéban maradnak');
   });
 
-  it('internal riport: vault_ref és username benne van', () => {
+  it('client riport: belső jelölő sehol nem jelenik meg', () => {
+    expect(md).not.toContain('BELSŐ_JELZŐ_123');
+    expect(md).not.toContain('## Scope');
+    expect(md).not.toContain('## Követelmények');
+  });
+
+  it('client riport: csak megosztott jegyzet jelenik meg', () => {
+    expect(md).toContain('### Megosztott jegyzet (01. fázis)');
+    expect(md).toContain('Ügyfélnek szánt törzs');
+    expect(md).not.toContain('BELSŐ_JELZŐ_123');
+  });
+
+  it('internal riport: minden adat benne van', () => {
     const internal = buildHandoverMarkdown({ ...base, audience: 'internal' });
     expect(internal).toContain('vault: 1PW > hosting');
     expect(internal).toContain('szabo');
+    expect(internal).toContain('BELSŐ_JELZŐ_123 scope');
+    expect(internal).toContain('### BELSŐ_JELZŐ_123');
   });
 
   it('üres projekt: őszinte üres szekciók', () => {
@@ -83,8 +98,8 @@ describe('buildHandoverMarkdown', () => {
     expect(empty).toContain('_Nincs nyitott feladat._');
     expect(empty).toContain('_Ebben a projektben nincs ellenőrzési tétel._');
     expect(empty).toContain('_Nincs csatolt erőforrás._');
-    expect(empty).toContain('_Nincs rögzített hozzáférés._');
-    expect(empty).toContain('_Nincs rögzített jegyzet._');
+    expect(empty).not.toContain('Hozzáférési térkép');
+    expect(empty).toContain('_Nincs ügyféllel megosztott jegyzet._');
     expect(empty).not.toContain('## Scope');
   });
 

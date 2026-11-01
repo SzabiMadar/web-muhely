@@ -188,6 +188,7 @@ const err = (k: string) => fieldErrors[k]?.[0];
                 <summary>
                   <span class="note-title">
                     {note.phase_code && <code class="note-phase">{note.phase_code}</code>}
+                    {note.client_visible && <code class="note-phase shared">Megosztott</code>}
                     <strong>{note.title}</strong>
                   </span>
                   <small>{new Date(note.updated_at).toLocaleDateString('hu-HU')}</small>
@@ -225,6 +226,10 @@ const err = (k: string) => fieldErrors[k]?.[0];
         <label for="note-body">Jegyzet (Markdown)</label>
         <textarea id="note-body" name="body_md" rows="4" maxlength="20000"></textarea>
       </div>
+      <label class="note-share" for="note-share">
+        <input type="checkbox" id="note-share" name="client_visible" />
+        Megosztható az ügyféllel az átadási riportban
+      </label>
       <button type="submit" class="btn btn-primary">Jegyzet mentése</button>
     </form>
   </section>
@@ -443,6 +448,26 @@ const err = (k: string) => fieldErrors[k]?.[0];
     border-radius: 5px;
     padding: 2px 6px;
     font-family: inherit;
+  }
+
+  .note-phase.shared {
+    color: var(--warning);
+    background: var(--warning-soft, #F6EBDD);
+  }
+
+  .note-share {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .note-share input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
   }
 
   .note-row summary small {

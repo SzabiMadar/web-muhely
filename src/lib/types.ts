@@ -98,6 +98,7 @@ export interface ProjectNote {
   owner_id: string;
   project_id: string;
   phase_code: string | null;
+  client_visible: boolean;
   title: string;
   body_md: string;
   created_at: string;

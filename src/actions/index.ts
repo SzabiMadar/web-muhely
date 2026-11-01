@@ -449,6 +449,7 @@ export const server = {
           phase_code: input.phase_code || null,
           title: input.title,
           body_md: input.body_md ?? '',
+          client_visible: input.client_visible === 'on',
         });
         if (error) {
           throw new ActionError({ code: 'INTERNAL_SERVER_ERROR', message: error.message });
@@ -468,6 +469,7 @@ export const server = {
             phase_code: input.phase_code || null,
             title: input.title,
             body_md: input.body_md ?? '',
+            client_visible: input.client_visible === 'on',
           })
           .eq('id', input.note_id)
           .eq('project_id', input.project_id)

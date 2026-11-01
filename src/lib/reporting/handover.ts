@@ -71,13 +71,13 @@ export function buildHandoverMarkdown(input: HandoverInput): string {
   if (project.invoice_ref) L.push(`- **Számlahivatkozás:** ${project.invoice_ref}`);
   if (project.feedback_notes) L.push(`- **Ügyfél-visszajelzés:** ${project.feedback_notes}`);
   L.push('');
-  if (project.scope_md) {
+  if (input.audience === 'internal' && project.scope_md) {
     L.push('## Scope');
     L.push('');
     L.push(project.scope_md);
     L.push('');
   }
-  if (project.requirements_md) {
+  if (input.audience === 'internal' && project.requirements_md) {
     L.push('## Követelmények');
     L.push('');
     L.push(project.requirements_md);
@@ -156,32 +156,27 @@ export function buildHandoverMarkdown(input: HandoverInput): string {
     }
   }
   L.push('');
-  L.push('## Hozzáférési térkép (metaadatok)');
-  L.push('');
-  if (accesses.length === 0) {
-    L.push('_Nincs rögzített hozzáférés._');
-  } else {
-    for (const r of accesses) {
-      if (input.audience === 'client') {
-        L.push(`- **${r.label}** — ${[r.provider, r.url].filter(Boolean).join(' · ')}`);
-      } else {
+  if (input.audience === 'internal') {
+    L.push('## Hozzáférési térkép (metaadatok)');
+    L.push('');
+    if (accesses.length === 0) {
+      L.push('_Nincs rögzített hozzáférés._');
+    } else {
+      for (const r of accesses) {
         const parts = [r.provider, r.username].filter(Boolean).join(' — ');
         L.push(`- **${r.label}** — ${parts}${r.vault_ref ? ` · vault: ${r.vault_ref}` : ''}${r.url ? ` · ${r.url}` : ''}`);
       }
     }
-  }
-  if (input.audience === 'client' && accesses.some((r) => r.vault_ref || r.username)) {
     L.push('');
-    L.push('_A belső fiókazonosítók és jelszókezelő-hivatkozások a műhely-dossziéban maradnak._');
   }
-  L.push('');
 
+  const visibleNotes = input.audience === 'client' ? notes.filter((n) => n.client_visible) : notes;
   L.push('## Jegyzetek');
   L.push('');
-  if (notes.length === 0) {
-    L.push('_Nincs rögzített jegyzet._');
+  if (visibleNotes.length === 0) {
+    L.push(input.audience === 'client' ? '_Nincs ügyféllel megosztott jegyzet._' : '_Nincs rögzített jegyzet._');
   } else {
-    for (const n of notes) {
+    for (const n of visibleNotes) {
       L.push(`### ${n.title}${n.phase_code ? ` (${n.phase_code}. fázis)` : ''}`);
       L.push('');
       L.push(n.body_md || '_Üres jegyzet._');
@@ -196,6 +191,11 @@ export function buildHandoverMarkdown(input: HandoverInput): string {
     L.push('');
   }
 
+  if (input.audience === 'client') {
+    L.push('---');
+    L.push('_A belső jegyzetek, a scope/részletes követelmények és a hozzáférési térkép a műhely-dossziéban maradnak._');
+    L.push('');
+  }
   L.push('---');
   L.push('_Ez a dokumentum a Műhely Workspace adatbázisából generálódott. Csak ténylegesen rögzített adatokat tartalmaz._');
   return L.join('\n');

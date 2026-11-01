@@ -122,6 +122,7 @@ export const noteSchema = z.object({
   phase_code: z.union([z.literal(''), z.enum(['01','02','03','04','05','06','07','08','09','10','11'])]).nullish(),
   title: z.string().trim().min(1, 'A jegyzet címe kötelező.').max(200),
   body_md: z.string().trim().max(20000).nullish(),
+  client_visible: z.string().nullish(),
 });
 
 export const noteUpdateSchema = noteSchema.extend({
