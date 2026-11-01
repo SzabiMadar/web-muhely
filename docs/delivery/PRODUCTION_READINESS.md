@@ -1,54 +1,82 @@
 # Production-readiness — W0–W4 MVP
 
-Az éles konfiguráció módosítása csak külön jóváhagyással. A kulcsok/titkok NEM kerülnek repóba.
+Az éles konfiguráció módosítása csak külön jóváhagyással. Kulcsok/titkok NEM kerülnek repóba vagy beszámolóba.
 
 ## 1. GitHub
 
-- **Default branch jelenleg `feat/w0-app-shell`** → állítsd `main`-re: Settings → Branches → Default branch.
-- Javasolt branch-védelem `main`-re: Settings → Branches → Add rule → Require a pull request before merging (1 approval elég), + status check ha CI lesz. Direct push tiltása opcionális.
+- **Default branch: `main`** ✅ (API-val átállítva, remote HEAD igazolja).
+- Javasolt védelem `main`-re (egyfejlesztős flow, approval nélkül):
+  Settings → Branches → Add rule → `main`: „Require a pull request before merging” (Required approvals: 0), „Do not bypass the above settings”, force-push és branch-törlés tiltva. Status check csak akkor kötelező, ha CI lesz.
+- Feature branchek megőrizve: `feat/w0..w4`, `feat/w3-mime-validation`.
 
-## 2. Supabase Cloud — migrációk (dry-run)
+## 2. Engedélyezett fájltípusok (végleges MVP-kör)
+
+| Típus | Kiterjesztés | Ellenőrzés |
+|---|---|---|
+| Képek | png, jpg, jpeg, webp, gif | fejléc-szignatúra |
+| PDF | pdf | `%PDF` szignatúra |
+| Office | doc, xls | OLE szignatúra |
+| Office OOXML | docx, xlsx | `PK` szignatúra + kötelező `[Content_Types].xml` marker |
+| Szöveg | txt, md, csv | UTF-8 fatal dekód + control-char szűrés |
+
+- Tiltva: **zip, svg, html, exe, script és minden ismeretlen kiterjesztés**; hiányzó MIME-típus; kiterjesztés–MIME eltérés; hamis tartalom.
+- Konténerkockázat: a docx/xlsx belső fájllistája nincs vizsgálva (maradék makró/beágyazás-kockázat dokumentált — a feltöltés owner-only, privát bucket, nincs nyilvános megosztás).
+- Méretkorlát: 10 MB — alkalmazásszinten (`validateProjectFile`) **és** a `project-files` bucketen (`file_size_limit` + `allowed_mime_types`, 0007/0008 migráció).
+- Storage-RLS: írás csak `{uid}/{létező saját project_id}/` útvonalra (0008); olvasás/törlés owner-prefix.
+
+## 3. Supabase Cloud — `web-muhely` projekt
+
+Migrációfájlok timestamp-formátumúak (`20260201000001`–`…000008`), a `db push` szabványosan felismeri őket.
 
 ```bash
-supabase link --project-ref <projekt-ref>          # dashboard → Project Settings → General
-supabase migration list                            # helyi vs remote állapot (csak olvasás)
-supabase db push --dry-run                         # mit futna le — NEM módosít
+npx supabase login                                  # egyszeri, helyi böngészős belépés
+npx supabase link --project-ref <PROJECT_REF>       # Dashboard URL-ből (nem titkos)
+npx supabase migration list                         # lokális vs remote (csak olvasás)
+npx supabase db push --dry-run                      # mit futna le — NEM módosít
 # jóváhagyás után:
-supabase db push                                   # 0001–0006 alkalmazása sorrendben
-supabase migration list                            # verifikáció
+npx supabase db push && npx supabase migration list # alkalmazás + verifikáció
 ```
 
-A 0003 migráció a `project-files` private bucketet + storage-policyt is létrehozza — `db push` kezeli.
+- GitHub-integráció: a repo össze van kapcsolva — ellenőrizd a Dashboard → Project Settings → Integrations alatt: working directory `.`, production branch `main`, **„Automatically deploy changes” kapcsoló legyen OFF** (automatikus production migráció tiltva).
+- A `db push` által érintett elemek: 8 tábla (clients, projects, project_phases, project_tasks, project_resources, project_notes, project_reports, stb.), összes RLS-policy, `project-files` privát bucket + storage-policyk + bucket-limitek.
+- DB-jelszócsere: Dashboard → Settings → Database → Reset database password (felhasználói lépés, a jelszó nem kerül a repóba/chatbe).
 
-## 3. Cloud Auth / RLS / Storage tesztt terv (2 fiktív user)
+## 4. Cloud Auth/RLS/Storage tesztt terv (2 fiktív user)
 
-Előkészület: a cloud-authban 2 fiktív fiók: `teszt.a@muhely.test`, `teszt.b@muhely.test` (email-auth engedélyezve; a tesztadatok nem valódiak).
+Előkészület: Dashboard → Authentication → Users → `teszt.a@muhely.test`, `teszt.b@muhely.test` (auto-confirm). Végrehajtás a jóváhagyott `db push` után.
 
 | # | Teszt | Elvárt |
 |---|---|---|
-| T1 | A login → ügyfél + 2 projekt + seed feladatok | Létrejön, 302 redirectek |
-| T2 | B login → `/clients`, `/projects` üres; A projektoldala → redirect | RLS-izoláció |
-| T3a | Névtelen (anon kulcs, JWT nélkül) `rest/v1/clients` → `[]` | RLS deny |
-| T3b | B JWT-vel hitelesítve: A kliensei `[]`; A projektéhez insert → RLS error | RLS deny |
-| T4 | A feltölt pdf-t → A signed URL működik. B saját JWT-vel: bucket-lista `[]`, a storage objectek közül A útvonalára kért signed URL és getDownload → deny. (Megjegyzés: az egyszer kiadott signed URL nem felhasználóhoz kötött — B általi felhasználása érvényes, ezt ne várd DENY-nak.) | Storage-RLS |
-| T5 | A: exe/html/svg feltöltés → `Nem támogatott`; .pdf-típusú hamis tartalom → tartalomhiba; üres MIME → tiltás; 10MB+ → méretlimit | MIME-validáció |
-| T6 | A: lezárás → client+internal riport → .md letöltés → B snapshot-link → deny | W4 útvonal |
+| T1 | A login → ügyfél + projekt + feladat-seed | Létrejön, 302 |
+| T2 | B login → üres listák; A projektoldala → redirect | Izoláció |
+| T3a | Anon (anon kulcs, JWT nélkül) `rest/v1/clients` → `[]` | Deny |
+| T3b | B JWT-vel: A adatai `[]`; insert A projektéhez → RLS-FK error | Deny |
+| T4 | A: fájlfeltöltés + signed URL működik; B saját JWT-vel: lista `[]`, signed-generate/getDownload deny; közvetlen API-upload nemlétező projektid alá → deny. (Kiadott signed URL nem userhez kötött — B felhasználása NEM várható deny-nak.) | Storage-RLS |
+| T5 | A: svg/zip/exe/html → tiltás; hamis .pdf → tartalomhiba; üres MIME → tiltás; >10 MB → tiltás (app + bucket szinten) | MIME-validáció |
+| T6 | A: lezárás → client + internal snapshot → .md letöltés; B snapshot-link → deny; client-riportban nincs scope/access/belső jegyzet | W4 útvonal |
 
-## 4. Netlify SSR
+## 5. Netlify readiness
 
-- `netlify.toml` + `@astrojs/netlify` adapter már OK (W0 óta `.netlify/v1/functions/ssr` generálódik).
-- Site létrehozása: „Import project” → GitHub repo → build `npm run build`, publish `dist`, functions `.netlify/v1/functions`.
-- **Privát tesztüzem:** password-protection a site-nak (Site settings → Access control → password protect) vagy Netlify-identity, míg az app single-user.
-- Deploy preview: minden PR-re automatikus; production csak `main`.
+- `netlify.toml`: `command = "npm run build"`, `publish = "dist"`; `@astrojs/netlify` 8.2.10 adapter — lokális build igazolva.
+- Javasolt `[build.environment]`: `NODE_VERSION = "22"` (Astro 7-hez kell).
+- Létrehozás: „Add new site → Import project” → GitHub repo → production branch `main`. Deploy-preview minden PR-re automatikus.
+- Privát tesztüzem: Site configuration → Access control → password protection (vagy csak preview-URL használata go-live-ig).
 
-## 5. Környezeti változók (Netlify UI-n, NEM repóban)
+## 6. Környezeti változók (Netlify UI, NEM repó)
 
-| Változó | Forrás | Megjegyzés |
-|---|---|---|
-| `PUBLIC_SUPABASE_URL` | cloud projekt → API Settings | `https://xxx.supabase.co` |
-| `PUBLIC_SUPABASE_ANON_KEY` | cloud projekt → API Settings | anon/publishable kulcs |
-| `SUPABASE_SERVICE_ROLE_KEY` | NEM kell az apphoz — csak CLI/test | soha ne env-ben az appnál |
+| Változó | Forrás |
+|---|---|
+| `PUBLIC_SUPABASE_URL` | Dashboard → API Settings → Project URL |
+| `PUBLIC_SUPABASE_ANON_KEY` | Dashboard → API Settings → anon/publishable |
 
-## 6. MIME-validáció (a branchen)
+Service role key NEM kell a runtime-hoz — se Netlify-envben, se kódban.
 
-`validateProjectFile` a `resources.ts`-ben: ext-allowlist (kép/pdf/doc/sheet/txt/md/csv/zip) + MIME-allowlist + 10 MB. Tiltott: exe/sh/html/script bármelyik mezőn. E2E a T5 sorban.
+## 7. Élesítési elfogadási terv (jóváhagyás utáni sorrend)
+
+1. `db push` + `migration list` verifikáció; GitHub-integration auto-deploy OFF ellenőrzése.
+2. 2 fiktív user létrehozása → T1–T6 cloud-teszt.
+3. Netlify site + env-k + build; preview-URL smoke (login, CRUD, workflow, dosszié, átadás).
+4. Teljes E2E fiktív adatokkal: signup → ügyfél → projekt → workflow → QA → dosszié → átadás → snapshot → .md.
+5. Valódi böngészős nyomtatás/PDF-mentés a riportról; desktop + 375px mobil.
+6. Publikus signup tiltása (Dashboard → Auth → Signups disabled — egyszemélyes app).
+7. Incidens-alapok: Supabase backup (auto, free plan napi), `supabase db dump` mentés; Netlify rollback (deploy-history „Publish earlier”).
