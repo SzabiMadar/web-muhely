@@ -28,9 +28,10 @@ Előkészület: a cloud-authban 2 fiktív fiók: `teszt.a@muhely.test`, `teszt.b
 |---|---|---|
 | T1 | A login → ügyfél + 2 projekt + seed feladatok | Létrejön, 302 redirectek |
 | T2 | B login → `/clients`, `/projects` üres; A projektoldala → redirect | RLS-izoláció |
-| T3 | B anon-token JWT-vel `rest/v1/clients` → `[]`; A projektéhez insert → error | RLS deny |
-| T4 | A feltölt pdf-t → signed URL működik; B ugyanazon az URL-en vagy bucket-listán → deny | Storage-RLS |
-| T5 | A: exe/html feltöltés → `Nem támogatott fájltípus`; 10MB+ → méretlimit | MIME-validáció |
+| T3a | Névtelen (anon kulcs, JWT nélkül) `rest/v1/clients` → `[]` | RLS deny |
+| T3b | B JWT-vel hitelesítve: A kliensei `[]`; A projektéhez insert → RLS error | RLS deny |
+| T4 | A feltölt pdf-t → A signed URL működik. B saját JWT-vel: bucket-lista `[]`, a storage objectek közül A útvonalára kért signed URL és getDownload → deny. (Megjegyzés: az egyszer kiadott signed URL nem felhasználóhoz kötött — B általi felhasználása érvényes, ezt ne várd DENY-nak.) | Storage-RLS |
+| T5 | A: exe/html/svg feltöltés → `Nem támogatott`; .pdf-típusú hamis tartalom → tartalomhiba; üres MIME → tiltás; 10MB+ → méretlimit | MIME-validáció |
 | T6 | A: lezárás → client+internal riport → .md letöltés → B snapshot-link → deny | W4 útvonal |
 
 ## 4. Netlify SSR

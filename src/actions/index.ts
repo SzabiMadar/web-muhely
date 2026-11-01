@@ -379,7 +379,7 @@ export const server = {
       handler: async (input, context) => {
         const { supabase, user } = requireUser(context);
         const file = input.file;
-        const invalid = validateProjectFile(file);
+        const invalid = await validateProjectFile(file);
         if (invalid) {
           throw new ActionError({ code: 'BAD_REQUEST', message: invalid });
         }
