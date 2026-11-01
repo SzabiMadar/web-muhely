@@ -143,3 +143,23 @@ export async function signedFileUrl(supabase: SupabaseClient, objectPath: string
   const { data } = await supabase.storage.from('project-files').createSignedUrl(objectPath, 60 * 10);
   return data?.signedUrl ?? null;
 }
+
+export async function listProjectNotes(supabase: SupabaseClient, projectId: string) {
+  const { data, error } = await supabase
+    .from('project_notes')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('updated_at', { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as import('../types').ProjectNote[];
+}
+
+export async function listProjectReports(supabase: SupabaseClient, projectId: string) {
+  const { data, error } = await supabase
+    .from('project_reports')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as import('../types').ProjectReport[];
+}

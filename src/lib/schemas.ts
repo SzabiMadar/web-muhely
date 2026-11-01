@@ -116,3 +116,31 @@ export const resourceDeleteSchema = z.object({
   project_id: z.uuid(),
   resource_id: z.uuid(),
 });
+
+export const noteSchema = z.object({
+  project_id: z.uuid(),
+  phase_code: z.union([z.literal(''), z.enum(['01','02','03','04','05','06','07','08','09','10','11'])]).nullish(),
+  title: z.string().trim().min(1, 'A jegyzet címe kötelező.').max(200),
+  body_md: z.string().trim().max(20000).nullish(),
+});
+
+export const noteUpdateSchema = noteSchema.extend({
+  note_id: z.uuid(),
+});
+
+export const noteDeleteSchema = z.object({
+  project_id: z.uuid(),
+  note_id: z.uuid(),
+});
+
+export const closureSchema = z.object({
+  project_id: z.uuid(),
+  status: z.enum(['active', 'paused', 'delivered', 'archived', 'cancelled']),
+  closure_notes: z.string().trim().max(10000).nullish(),
+  invoice_ref: z.string().trim().max(300).nullish(),
+  feedback_notes: z.string().trim().max(300).nullish(),
+});
+
+export const reportGenerateSchema = z.object({
+  project_id: z.uuid(),
+});

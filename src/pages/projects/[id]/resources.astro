@@ -4,7 +4,8 @@ import AppLayout from '../../../layouts/AppLayout.astro';
 import PageHeader from '../../../components/PageHeader.astro';
 import ProjectTabs from '../../../components/ProjectTabs.astro';
 import EmptyState from '../../../components/EmptyState.astro';
-import { getProjectOverview, listProjectResources, signedFileUrl } from '../../../lib/server/queries';
+import { getProjectOverview, listProjectResources, signedFileUrl, listProjectNotes } from '../../../lib/server/queries';
+import { PHASES } from '../../../lib/phases';
 import { RESOURCE_PRESETS } from '../../../lib/resources';
 import type { ProjectResource } from '../../../lib/types';
 
@@ -25,6 +26,8 @@ if (Astro.request.method === 'POST') {
   if (kind === 'link') ({ error } = await Astro.callAction(actions.resources.createLink, formData));
   else if (kind === 'upload') ({ error } = await Astro.callAction(actions.resources.uploadFile, formData));
   else if (kind === 'delete') ({ error } = await Astro.callAction(actions.resources.remove, formData));
+  else if (kind === 'note') ({ error } = await Astro.callAction(actions.notes.create, formData));
+  else if (kind === 'note-del') ({ error } = await Astro.callAction(actions.notes.remove, formData));
   else kind = undefined;
 
   if (kind) {
@@ -42,6 +45,9 @@ if (Astro.request.method === 'POST') {
 }
 
 const resources = await listProjectResources(supabase, project.id);
+const notes = await listProjectNotes(supabase, project.id);
+const noteQuery = (Astro.url.searchParams.get('note_q') ?? '').toLowerCase();
+const shownNotes = noteQuery ? notes.filter((n) => n.title.toLowerCase().includes(noteQuery)) : notes;
 const links = resources.filter((r) => r.kind === 'link');
 const files = resources.filter((r) => r.kind === 'file');
 const fileUrls = new Map<string, string | null>();
@@ -157,6 +163,71 @@ const err = (k: string) => fieldErrors[k]?.[0];
       </form>
     </section>
   </div>
+
+  <section class="card notes-card">
+    <div class="notes-head">
+      <div>
+        <h2 class="card-title">Jegyzetek</h2>
+        <p class="card-sub">Projekt- és fázisjegyzetek — Markdown mező, cím szerint kereshető.</p>
+      </div>
+      <form method="GET" class="note-search">
+        <input type="search" name="note_q" value={Astro.url.searchParams.get('note_q') ?? ''} placeholder="Keresés címben…" aria-label="Jegyzet keresés cím alapján" />
+      </form>
+    </div>
+
+    {
+      notes.length === 0 ? (
+        <p class="notes-empty">Még nincs jegyzet — az első az űrlap alatt adható hozzá.</p>
+      ) : shownNotes.length === 0 ? (
+        <p class="notes-empty">Nincs találat erre a címkeresésre.</p>
+      ) : (
+        <ul class="note-list" role="list">
+          {shownNotes.map((note) => (
+            <li class="note-row">
+              <details>
+                <summary>
+                  <span class="note-title">
+                    {note.phase_code && <code class="note-phase">{note.phase_code}</code>}
+                    <strong>{note.title}</strong>
+                  </span>
+                  <small>{new Date(note.updated_at).toLocaleDateString('hu-HU')}</small>
+                </summary>
+                {note.body_md && <pre class="note-body">{note.body_md}</pre>}
+              </details>
+              <form method="POST" class="del-form">
+                <input type="hidden" name="kind" value="note-del" />
+                <input type="hidden" name="note_id" value={note.id} />
+                <button type="submit" class="btn btn-ghost small danger" aria-label={`${note.title} törlése`}>Törlés</button>
+              </form>
+            </li>
+          ))}
+        </ul>
+      )
+    }
+
+    <form method="POST" class="res-form note-form" novalidate>
+      <input type="hidden" name="kind" value="note" />
+      <div class="note-form-grid">
+        <div class="form-field">
+          <label for="note-title">Cím *</label>
+          <input id="note-title" name="title" type="text" required maxlength="200" />
+          {err('title') && <p class="field-error">{err('title')}</p>}
+        </div>
+        <div class="form-field">
+          <label for="note-phase">Fázis</label>
+          <select id="note-phase" name="phase_code">
+            <option value="">— nincs —</option>
+            {PHASES.map((p) => <option value={p.code}>{p.code}. {p.title}</option>)}
+          </select>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="note-body">Jegyzet (Markdown)</label>
+        <textarea id="note-body" name="body_md" rows="4" maxlength="20000"></textarea>
+      </div>
+      <button type="submit" class="btn btn-primary">Jegyzet mentése</button>
+    </form>
+  </section>
 </AppLayout>
 
 <style>
@@ -299,8 +370,130 @@ const err = (k: string) => fieldErrors[k]?.[0];
     margin: 20px 0;
   }
 
+  .notes-card {
+    margin-top: 20px;
+    padding: 22px 24px;
+  }
+
+  .notes-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .note-search input {
+    min-height: 38px;
+    padding: 7px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    font: inherit;
+    font-size: 13px;
+    min-width: 200px;
+  }
+
+  .notes-empty {
+    color: var(--muted);
+    font-size: 13.5px;
+    padding: 16px 0;
+  }
+
+  .note-list {
+    list-style: none;
+    margin: 4px 0 18px;
+    padding: 0;
+  }
+
+  .note-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 2px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .note-row details {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .note-row summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    font-size: 13.5px;
+  }
+
+  .note-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .note-phase {
+    font-size: 10px;
+    font-weight: 800;
+    color: var(--accent-deep);
+    background: var(--accent-soft);
+    border-radius: 5px;
+    padding: 2px 6px;
+    font-family: inherit;
+  }
+
+  .note-row summary small {
+    color: var(--muted);
+    font-size: 11.5px;
+    flex-shrink: 0;
+  }
+
+  .note-body {
+    margin: 8px 0 4px;
+    padding: 10px 14px;
+    background: var(--surface-2);
+    border-radius: 8px;
+    font-size: 12.5px;
+    color: var(--ink);
+    white-space: pre-wrap;
+    font-family: inherit;
+  }
+
+  .note-form {
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+
+  .note-form-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 12px;
+  }
+
+  .note-form select,
+  .note-form textarea {
+    min-height: 40px;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    font: inherit;
+    font-size: 13.5px;
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+  }
+
   @media (max-width: 900px) {
     .res-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .note-form-grid {
       grid-template-columns: 1fr;
     }
   }

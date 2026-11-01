@@ -1,0 +1,87 @@
+---
+import { getProjectOverview, listProjectTasks, listProjectResources, listProjectNotes } from '../../../../lib/server/queries';
+import { buildHandoverMarkdown, mdToHtml } from '../../../../lib/reporting/handover';
+
+const supabase = Astro.locals.supabase!;
+const project = await getProjectOverview(supabase, Astro.params.id!);
+if (!project) {
+  return Astro.redirect('/projects');
+}
+
+const [tasks, resources, notes] = await Promise.all([
+  listProjectTasks(supabase, project.id),
+  listProjectResources(supabase, project.id),
+  listProjectNotes(supabase, project.id),
+]);
+
+const md = buildHandoverMarkdown({
+  project,
+  phases: project.phases,
+  tasks,
+  resources,
+  notes,
+  generatedAt: new Date(),
+});
+const html = mdToHtml(md);
+---
+
+<!doctype html>
+<html lang="hu">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{project.title} — átadási dokumentum</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body {
+        font-family: 'Manrope Variable', system-ui, sans-serif;
+        color: #1A2822;
+        line-height: 1.6;
+        max-width: 780px;
+        margin: 0 auto;
+        padding: 48px 32px;
+      }
+      h1 { font-size: 26px; letter-spacing: -.02em; margin: 0 0 8px; }
+      h2 { font-size: 17px; margin: 28px 0 10px; padding-top: 16px; border-top: 1px solid #E1E8E1; }
+      h2:first-of-type { border-top: 0; }
+      h3 { font-size: 14px; margin: 16px 0 6px; }
+      p { margin: 8px 0; font-size: 13.5px; }
+      ul, ol { margin: 8px 0 8px 22px; font-size: 13.5px; }
+      li { margin: 4px 0; }
+      hr { border: 0; border-top: 1px solid #E1E8E1; margin: 28px 0 12px; }
+      a { color: #377D64; }
+      em { color: #68766F; }
+      .toolbar {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 32px;
+      }
+      .toolbar a, .toolbar button {
+        font: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 8px 16px;
+        border-radius: 10px;
+        cursor: pointer;
+        border: 1px solid #E1E8E1;
+        background: #fff;
+        color: #1A2822;
+        text-decoration: none;
+      }
+      .toolbar .primary { background: #377D64; color: #fff; border-color: #377D64; }
+      @media print {
+        body { padding: 0; max-width: none; }
+        .toolbar { display: none; }
+        h2 { page-break-after: avoid; }
+        li { page-break-inside: avoid; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="toolbar">
+      <a href={`/projects/${project.id}/handover`}>← Vissza az átadáshoz</a>
+      <button class="primary" type="button" onclick="window.print()">Nyomtatás / PDF mentés</button>
+    </div>
+    <article set:html={html} />
+  </body>
+</html>

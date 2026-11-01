@@ -9,7 +9,18 @@ import {
 import { PHASES } from '../lib/phases';
 import { tasksForWorkType } from '../lib/playbook/templates';
 import { FILE_BUCKET, MAX_FILE_SIZE_BYTES } from '../lib/resources';
-import { resourceAccessSchema, resourceDeleteSchema, resourceLinkSchema, resourceUploadSchema } from '../lib/schemas';
+import {
+  closureSchema,
+  noteDeleteSchema,
+  noteSchema,
+  noteUpdateSchema,
+  reportGenerateSchema,
+  resourceAccessSchema,
+  resourceDeleteSchema,
+  resourceLinkSchema,
+  resourceUploadSchema,
+} from '../lib/schemas';
+import { buildHandoverMarkdown } from '../lib/reporting/handover';
 import { z } from 'zod';
 import type { ActionAPIContext } from 'astro:actions';
 import type { SupabaseClient, User } from '@supabase/supabase-js';
@@ -412,6 +423,151 @@ export const server = {
           await supabase.storage.from(FILE_BUCKET).remove([resource.object_path]);
         }
         return { ok: true };
+      },
+    }),
+  },
+
+  notes: {
+    create: defineAction({
+      accept: 'form',
+      input: noteSchema,
+      handler: async (input, context) => {
+        const { supabase, user } = requireUser(context);
+        const { error } = await supabase.from('project_notes').insert({
+          owner_id: user.id,
+          project_id: input.project_id,
+          phase_code: input.phase_code || null,
+          title: input.title,
+          body_md: input.body_md ?? '',
+        });
+        if (error) {
+          throw new ActionError({ code: 'INTERNAL_SERVER_ERROR', message: error.message });
+        }
+        return { ok: true };
+      },
+    }),
+
+    update: defineAction({
+      accept: 'form',
+      input: noteUpdateSchema,
+      handler: async (input, context) => {
+        const { supabase } = requireUser(context);
+        const { data, error } = await supabase
+          .from('project_notes')
+          .update({
+            phase_code: input.phase_code || null,
+            title: input.title,
+            body_md: input.body_md ?? '',
+          })
+          .eq('id', input.note_id)
+          .eq('project_id', input.project_id)
+          .select('id');
+        if (error) {
+          throw new ActionError({ code: 'INTERNAL_SERVER_ERROR', message: error.message });
+        }
+        if (!data || data.length === 0) {
+          throw new ActionError({ code: 'NOT_FOUND', message: 'A jegyzet nem található.' });
+        }
+        return { ok: true };
+      },
+    }),
+
+    remove: defineAction({
+      accept: 'form',
+      input: noteDeleteSchema,
+      handler: async (input, context) => {
+        const { supabase } = requireUser(context);
+        const { data, error } = await supabase
+          .from('project_notes')
+          .delete()
+          .eq('id', input.note_id)
+          .eq('project_id', input.project_id)
+          .select('id');
+        if (error) {
+          throw new ActionError({ code: 'INTERNAL_SERVER_ERROR', message: error.message });
+        }
+        if (!data || data.length === 0) {
+          throw new ActionError({ code: 'NOT_FOUND', message: 'A jegyzet nem található.' });
+        }
+        return { ok: true };
+      },
+    }),
+  },
+
+  handover: {
+    saveClosure: defineAction({
+      accept: 'form',
+      input: closureSchema,
+      handler: async (input, context) => {
+        const { supabase } = requireUser(context);
+        const closing = input.status === 'delivered' || input.status === 'archived';
+        const fields: Record<string, unknown> = {
+          status: input.status,
+          closure_notes: input.closure_notes ?? null,
+          invoice_ref: input.invoice_ref ?? null,
+          feedback_notes: input.feedback_notes ?? null,
+          closed_at: closing ? new Date().toISOString() : null,
+        };
+        const { data, error } = await supabase
+          .from('projects')
+          .update(fields)
+          .eq('id', input.project_id)
+          .select('id');
+        if (error) {
+          throw new ActionError({ code: 'INTERNAL_SERVER_ERROR', message: error.message });
+        }
+        if (!data || data.length === 0) {
+          throw new ActionError({ code: 'NOT_FOUND', message: 'A projekt nem található.' });
+        }
+        return { ok: true };
+      },
+    }),
+
+    generate: defineAction({
+      accept: 'form',
+      input: reportGenerateSchema,
+      handler: async (input, context) => {
+        const { supabase, user } = requireUser(context);
+        const { data: project, error: projectError } = await supabase
+          .from('projects')
+          .select('*, client:clients(id, display_name)')
+          .eq('id', input.project_id)
+          .maybeSingle();
+        if (projectError || !project) {
+          throw new ActionError({ code: 'NOT_FOUND', message: 'A projekt nem található.' });
+        }
+        const [phases, tasks, resources, notes] = await Promise.all([
+          supabase.from('project_phases').select('*').eq('project_id', project.id).order('phase_code'),
+          supabase.from('project_tasks').select('*').eq('project_id', project.id).order('phase_code').order('position'),
+          supabase.from('project_resources').select('*').eq('project_id', project.id).order('created_at'),
+          supabase.from('project_notes').select('*').eq('project_id', project.id).order('updated_at', { ascending: false }),
+        ]);
+        for (const r of [phases, tasks, resources, notes]) {
+          if (r.error) {
+            throw new ActionError({ code: 'INTERNAL_SERVER_ERROR', message: r.error.message });
+          }
+        }
+        const content_md = buildHandoverMarkdown({
+          project,
+          phases: phases.data ?? [],
+          tasks: tasks.data ?? [],
+          resources: resources.data ?? [],
+          notes: notes.data ?? [],
+          generatedAt: new Date(),
+        });
+        const { data: report, error: reportError } = await supabase
+          .from('project_reports')
+          .insert({
+            owner_id: user.id,
+            project_id: project.id,
+            kind: 'handover',
+            content_md,
+          })
+          .select('id, created_at');
+        if (reportError) {
+          throw new ActionError({ code: 'INTERNAL_SERVER_ERROR', message: reportError.message });
+        }
+        return { reportId: report?.[0]?.id };
       },
     }),
   },

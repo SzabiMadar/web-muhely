@@ -1,26 +1,293 @@
 ---
+import { actions, isInputError } from 'astro:actions';
 import AppLayout from '../../../layouts/AppLayout.astro';
 import PageHeader from '../../../components/PageHeader.astro';
 import ProjectTabs from '../../../components/ProjectTabs.astro';
-import PlannedFeature from '../../../components/PlannedFeature.astro';
-import { getProjectOverview } from '../../../lib/server/queries';
+import StatusPill from '../../../components/StatusPill.astro';
+import { getProjectOverview, listProjectTasks, listProjectReports } from '../../../lib/server/queries';
+import type { ProjectStatus } from '../../../lib/types';
 
 const supabase = Astro.locals.supabase!;
 const project = await getProjectOverview(supabase, Astro.params.id!);
 if (!project) {
   return Astro.redirect('/projects');
 }
+
+let formError: string | null = null;
+let fieldErrors: Record<string, string[] | undefined> = {};
+
+if (Astro.request.method === 'POST') {
+  const formData = await Astro.request.formData();
+  formData.set('project_id', project.id);
+  const kind = formData.get('kind')?.toString();
+  let error = null;
+  if (kind === 'closure') ({ error } = await Astro.callAction(actions.handover.saveClosure, formData));
+  else if (kind === 'generate') ({ error } = await Astro.callAction(actions.handover.generate, formData));
+
+  if (kind) {
+    if (error) {
+      if (isInputError(error)) {
+        fieldErrors = error.fields as typeof fieldErrors;
+        formError = 'Ellenőrizd a megjelölt mezőket.';
+      } else {
+        formError = error.message ?? 'A mentés nem sikerült.';
+      }
+    } else {
+      return Astro.redirect(Astro.url.pathname);
+    }
+  }
+}
+
+const tasks = await listProjectTasks(supabase, project.id);
+const reports = await listProjectReports(supabase, project.id);
+const openCount = tasks.filter((t) => t.status === 'todo' || t.status === 'in_progress').length;
+const failedCount = tasks.filter((t) => t.verification === 'failed').length;
+const untestedCount = tasks.filter((t) => t.verification === 'not_tested').length;
+const isClosed = project.status === 'delivered' || project.status === 'archived';
+
+const statusLabel: Record<string, string> = {
+  draft: 'Tervezés alatt', active: 'Aktív', paused: 'Szünetel',
+  delivered: 'Átadott', archived: 'Archivált', cancelled: 'Lemondott',
+};
 ---
 
 <AppLayout title={`${project.title} — Átadás`}>
-  <PageHeader
-    eyebrow={project.client?.display_name ?? 'Projekt'}
-    title={project.title}
-  />
+  <PageHeader eyebrow={project.client?.display_name ?? 'Projekt'} title={project.title}>
+    <StatusPill
+      variant={isClosed ? 'accent' : 'warning'}
+      label={statusLabel[project.status] ?? project.status}
+    />
+  </PageHeader>
   <ProjectTabs projectId={project.id} active="handover" />
-  <PlannedFeature
-    wave="W4"
-    title="Átadás és lezárás"
-    description="Záró összefoglaló, számla- és visszajelzés-hivatkozások, nyitott tételek és nyomtatóbarát/Markdown export. A nem ellenőrzött vagy sikertelen QA-pontok itt sem jelennek meg teljesítésként."
-  />
+
+  {formError && <p class="form-error" role="alert">{formError}</p>}
+
+  {(openCount > 0 || failedCount > 0 || untestedCount > 0) && (
+    <div class="warn-strip" role="note">
+      <strong>Figyelmeztetés az átadás előtt:</strong>
+      {openCount > 0 && <span>{openCount} nyitott feladat</span>}
+      {failedCount > 0 && <span>{failedCount} sikertelen QA-tétel</span>}
+      {untestedCount > 0 && <span>{untestedCount} nem ellenőrzött tétel</span>}
+      — ezek a riportban is láthatóak lesznek, nem tűnnek el.
+    </div>
+  )}
+
+  <div class="handover-grid">
+    <section class="card">
+      <h2 class="card-title">Lezárás</h2>
+      <p class="card-sub">
+        A státusz és a záró mezők itt állíthatók. Az alkalmazás nem állít számlát ki —
+        a mezők csak hivatkozást tárolnak (számlaszám, külső dokumentum, ügyfél-visszajelzés).
+      </p>
+      {project.closed_at && (
+        <p class="closed-line">Lezárva: {new Date(project.closed_at).toLocaleString('hu-HU')}</p>
+      )}
+
+      <form method="POST" class="closure-form" novalidate>
+        <input type="hidden" name="kind" value="closure" />
+        <div class="form-field">
+          <label for="cl-status">Projekt státusz</label>
+          <select id="cl-status" name="status">
+            {(['active','paused','delivered','archived','cancelled'] as ProjectStatus[]).map((s) => (
+              <option value={s} selected={project.status === s}>{statusLabel[s]}</option>
+            ))}
+          </select>
+        </div>
+        <div class="form-field">
+          <label for="cl-note">Záró megjegyzés</label>
+          <textarea id="cl-note" name="closure_notes" rows="4" maxlength="10000" placeholder="Mi lett az eredmény, mi maradt nyitva, mire figyeljen a karbantartás?">{project.closure_notes ?? ''}</textarea>
+        </div>
+        <div class="grid-2">
+          <div class="form-field">
+            <label for="cl-invoice">Számlahivatkozás</label>
+            <input id="cl-invoice" name="invoice_ref" type="text" maxlength="300" value={project.invoice_ref ?? ''} placeholder="pl. számlaszám vagy külső link" />
+          </div>
+          <div class="form-field">
+            <label for="cl-feedback">Ügyfél-visszajelzés</label>
+            <input id="cl-feedback" name="feedback_notes" type="text" maxlength="300" value={project.feedback_notes ?? ''} placeholder="pl. elégedett / módosítást kért" />
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary">Lezárás mentése</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2 class="card-title">Átadási dokumentum</h2>
+      <p class="card-sub">
+        A riport a projekt pillanatnyi adataiból készül: fázisok, nyitott és QA-tételek,
+        erőforrások, hozzáférések, jegyzetek. Minden generálás új mentett pillanatkép.
+      </p>
+
+      <div class="report-actions">
+        <form method="POST">
+          <input type="hidden" name="kind" value="generate" />
+          <button type="submit" class="btn btn-primary">Riport generálása</button>
+        </form>
+        <a href={`/projects/${project.id}/handover/report`} class="btn btn-ghost" target="_blank" rel="noopener">
+          Nyomtatható nézet
+        </a>
+      </div>
+
+      {reports.length > 0 ? (
+        <ul class="report-list" role="list">
+          {reports.map((report) => (
+            <li>
+              <span>Átadási dokumentum</span>
+              <small>{new Date(report.created_at).toLocaleString('hu-HU')}</small>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p class="report-empty">Még nincs mentett riport — az első generálás itt jelenik meg.</p>
+      )}
+    </section>
+  </div>
 </AppLayout>
+
+<style>
+  .form-error {
+    background: var(--danger-soft);
+    color: var(--danger);
+    border-radius: var(--radius-control);
+    padding: 11px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 16px;
+  }
+
+  .warn-strip {
+    background: var(--warning-soft, #F6EBDD);
+    border: 1px solid var(--warning);
+    border-radius: var(--radius-control);
+    color: var(--warning);
+    padding: 11px 14px;
+    font-size: 13px;
+    margin-bottom: 18px;
+    line-height: 1.5;
+  }
+
+  .warn-strip strong {
+    display: inline;
+    margin-right: 4px;
+  }
+
+  .warn-strip span {
+    font-weight: 700;
+    display: inline-block;
+    margin-right: 12px;
+  }
+
+  .handover-grid {
+    display: grid;
+    grid-template-columns: 1.15fr 1fr;
+    gap: 20px;
+    align-items: start;
+  }
+
+  .card {
+    padding: 22px 24px;
+  }
+
+  .card-title {
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: -.01em;
+  }
+
+  .card-sub {
+    color: var(--muted);
+    font-size: 12.5px;
+    margin-top: 4px;
+    margin-bottom: 16px;
+    line-height: 1.5;
+  }
+
+  .closed-line {
+    font-size: 12.5px;
+    color: var(--accent-deep);
+    font-weight: 700;
+    margin-bottom: 14px;
+  }
+
+  .closure-form {
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
+  }
+
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .closure-form input,
+  .closure-form select,
+  .closure-form textarea {
+    min-height: 40px;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    font: inherit;
+    font-size: 13.5px;
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+  }
+
+  .closure-form input:focus-visible,
+  .closure-form select:focus-visible,
+  .closure-form textarea:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    border-color: var(--accent);
+  }
+
+  .report-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+  }
+
+  .report-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .report-list li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 9px 2px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+
+  .report-list li:last-child {
+    border-bottom: 0;
+  }
+
+  .report-list small {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .report-empty {
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  @media (max-width: 900px) {
+    .handover-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .grid-2 {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
