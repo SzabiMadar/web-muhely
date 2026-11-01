@@ -8,7 +8,7 @@ import {
 } from '../lib/schemas';
 import { PHASES } from '../lib/phases';
 import { tasksForWorkType } from '../lib/playbook/templates';
-import { FILE_BUCKET, MAX_FILE_SIZE_BYTES } from '../lib/resources';
+import { FILE_BUCKET, validateProjectFile } from '../lib/resources';
 import {
   closureSchema,
   noteDeleteSchema,
@@ -379,11 +379,9 @@ export const server = {
       handler: async (input, context) => {
         const { supabase, user } = requireUser(context);
         const file = input.file;
-        if (file.size > MAX_FILE_SIZE_BYTES) {
-          throw new ActionError({
-            code: 'BAD_REQUEST',
-            message: 'A fájl legfeljebb 10 MB lehet.',
-          });
+        const invalid = validateProjectFile(file);
+        if (invalid) {
+          throw new ActionError({ code: 'BAD_REQUEST', message: invalid });
         }
         const safeName = file.name.replace(/[^\w.\-()áéíóöőúüűÁÉÍÓÖŐÚÜŰ ]+/g, '_');
         const objectPath = `${user.id}/${input.project_id}/${crypto.randomUUID()}-${safeName}`;

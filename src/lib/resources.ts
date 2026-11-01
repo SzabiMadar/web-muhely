@@ -22,3 +22,28 @@ export const RESOURCE_PRESETS: readonly ResourcePreset[] = [
 
 export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 export const FILE_BUCKET = 'project-files';
+
+/** Engedélyezett fájltípusok a dossziéba — kiterjesztés + MIME. */
+export const ALLOWED_FILE_EXTENSIONS = new Set([
+  'png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'pdf',
+  'txt', 'md', 'csv', 'doc', 'docx', 'xls', 'xlsx', 'zip',
+]);
+
+export const ALLOWED_MIME_TYPES = new Set([
+  'image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/svg+xml',
+  'application/pdf', 'text/plain', 'text/markdown', 'text/csv',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/zip', 'application/x-zip-compressed',
+]);
+
+export function validateProjectFile(file: { name: string; size: number; type: string }): string | null {
+  if (file.size <= 0) return 'Válassz ki egy fájlt.';
+  if (file.size > MAX_FILE_SIZE_BYTES) return 'A fájl legfeljebb 10 MB lehet.';
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+  if (!ALLOWED_FILE_EXTENSIONS.has(ext)) return `Nem támogatott fájltípus: .${ext}`;
+  if (file.type && !ALLOWED_MIME_TYPES.has(file.type)) return `Nem támogatott tartalomtípus: ${file.type}`;
+  return null;
+}
