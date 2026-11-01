@@ -6,7 +6,7 @@ import ProjectTabs from '../../../components/ProjectTabs.astro';
 import EmptyState from '../../../components/EmptyState.astro';
 import { getProjectOverview, listProjectResources, signedFileUrl, listProjectNotes } from '../../../lib/server/queries';
 import { PHASES } from '../../../lib/phases';
-import { RESOURCE_PRESETS } from '../../../lib/resources';
+import { RESOURCE_PRESETS, FILE_ACCEPT } from '../../../lib/resources';
 import type { ProjectResource } from '../../../lib/types';
 
 const supabase = Astro.locals.supabase!;
@@ -156,7 +156,7 @@ const err = (k: string) => fieldErrors[k]?.[0];
         </div>
         <div class="form-field">
           <label for="file-input">Fájl *</label>
-          <input id="file-input" name="file" type="file" required aria-invalid={err('file') ? 'true' : undefined} />
+          <input id="file-input" name="file" type="file" accept={FILE_ACCEPT} required aria-invalid={err('file') ? 'true' : undefined} />
           {err('file') && <p class="field-error">{err('file')}</p>}
         </div>
         <button type="submit" class="btn btn-primary">Feltöltés</button>

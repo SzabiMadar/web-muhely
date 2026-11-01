@@ -16,8 +16,9 @@ describe('validateProjectFile', () => {
     expect(await validateProjectFile(f('a.pdf', PDF, 'application/pdf'))).toBeNull();
     expect(await validateProjectFile(f('a.png', PNG, 'image/png'))).toBeNull();
     expect(await validateProjectFile(f('a.doc', OLE, 'application/msword'))).toBeNull();
-    expect(await validateProjectFile(f('a.xlsx', ZIP, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'))).toBeNull();
-    expect(await validateProjectFile(f('a.zip', ZIP, 'application/zip'))).toBeNull();
+    expect(await validateProjectFile(f('a.docx', ZIP, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'))).toContain('tartalma');
+    const docx = new Uint8Array([...ZIP, ...new TextEncoder().encode('[Content_Types].xml'), ...new Uint8Array(32)]);
+    expect(await validateProjectFile(f('a.docx', docx, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'))).toBeNull();
     expect(await validateProjectFile(f('a.txt', 'ügyfél brief\nmásodik sor', 'text/plain'))).toBeNull();
     expect(await validateProjectFile(f('a.md', '# Cím', 'text/markdown'))).toBeNull();
     expect(await validateProjectFile(f('a.csv', 'a;b\n1;2', 'text/csv'))).toBeNull();
@@ -37,6 +38,7 @@ describe('validateProjectFile', () => {
     expect(await validateProjectFile(f('a.svg', '<svg/>', 'image/svg+xml'))).toContain('svg');
     expect(await validateProjectFile(f('a.exe', MZ, 'application/x-msdownload'))).toContain('exe');
     expect(await validateProjectFile(f('a.html', '<html/>', 'text/html'))).toContain('html');
+    expect(await validateProjectFile(f('a.zip', ZIP, 'application/zip'))).toContain('zip');
   });
   it('méretkorlát és üres fájl', async () => {
     expect(await validateProjectFile(f('a.pdf', new Uint8Array(0), 'application/pdf'))).toContain('Válassz');
