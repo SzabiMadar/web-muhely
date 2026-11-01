@@ -143,4 +143,5 @@ export const closureSchema = z.object({
 
 export const reportGenerateSchema = z.object({
   project_id: z.uuid(),
+  audience: z.enum(['client', 'internal']).nullish(),
 });

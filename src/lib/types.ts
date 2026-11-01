@@ -109,6 +109,7 @@ export interface ProjectReport {
   owner_id: string;
   project_id: string;
   kind: 'handover' | 'summary';
+  audience: 'client' | 'internal';
   content_md: string;
   created_at: string;
 }

@@ -38,6 +38,10 @@ Astro SSR + TypeScript strict + natív CSS; Supabase Auth + PostgreSQL + privát
 
 **Ami még nincs:** Supabase Cloud-projekt és Netlify deploy (eddig csak lokális Docker), W5 funkciók (AI, PDF-motor, GitHub-integráció, PWA).
 
+**Production előtti javítások:**
+- W3 fájlfeltöltésnél nincs MIME-whitelist (csak méretlimit + útvonal-ellenőrzés) — exe/script feltöltés kezdőnaposan tiltható kellene.
+- `delivered`/`archived` projekt továbbra is szerkeszthető (nincs read-only lock az MVP-ben).
+
 ## Fejlesztési keretek
 
 - Csak az aktuálisan kiosztott szeletet implementáld — most **W4 kész**, W5 nem kezdődött.

@@ -5,6 +5,7 @@ import PageHeader from '../../../components/PageHeader.astro';
 import ProjectTabs from '../../../components/ProjectTabs.astro';
 import StatusPill from '../../../components/StatusPill.astro';
 import { getProjectOverview, listProjectTasks, listProjectReports } from '../../../lib/server/queries';
+import { tasksForWorkType } from '../../../lib/playbook/templates';
 import type { ProjectStatus } from '../../../lib/types';
 
 const supabase = Astro.locals.supabase!;
@@ -40,9 +41,14 @@ if (Astro.request.method === 'POST') {
 
 const tasks = await listProjectTasks(supabase, project.id);
 const reports = await listProjectReports(supabase, project.id);
+const verificationKeys = new Set(
+  tasksForWorkType(project.work_type).filter((t) => t.needsVerification).map((t) => t.key),
+);
 const openCount = tasks.filter((t) => t.status === 'todo' || t.status === 'in_progress').length;
 const failedCount = tasks.filter((t) => t.verification === 'failed').length;
-const untestedCount = tasks.filter((t) => t.verification === 'not_tested').length;
+const untestedCount = tasks.filter(
+  (t) => t.template_item_key && verificationKeys.has(t.template_item_key) && t.verification === 'not_tested',
+).length;
 const isClosed = project.status === 'delivered' || project.status === 'archived';
 
 const statusLabel: Record<string, string> = {
@@ -121,18 +127,30 @@ const statusLabel: Record<string, string> = {
       <div class="report-actions">
         <form method="POST">
           <input type="hidden" name="kind" value="generate" />
-          <button type="submit" class="btn btn-primary">Riport generálása</button>
+          <input type="hidden" name="audience" value="client" />
+          <button type="submit" class="btn btn-primary">Ügyfél-riport</button>
+        </form>
+        <form method="POST">
+          <input type="hidden" name="kind" value="generate" />
+          <input type="hidden" name="audience" value="internal" />
+          <button type="submit" class="btn btn-ghost">Belső riport</button>
         </form>
         <a href={`/projects/${project.id}/handover/report`} class="btn btn-ghost" target="_blank" rel="noopener">
           Nyomtatható nézet
         </a>
       </div>
+      <p class="audience-note">Az ügyfél-riport nem tartalmazza a fiókazonosítókat és jelszókezelő-hivatkozásokat.</p>
 
       {reports.length > 0 ? (
         <ul class="report-list" role="list">
           {reports.map((report) => (
             <li>
-              <span>Átadási dokumentum</span>
+              <a class="report-link" href={`/projects/${project.id}/handover/report/${report.id}`}>
+                Átadási dokumentum
+              </a>
+              <span class:list={['aud-badge', { internal: report.audience === 'internal' }]}>
+                {report.audience === 'internal' ? 'Belső' : 'Ügyfél'}
+              </span>
               <small>{new Date(report.created_at).toLocaleString('hu-HU')}</small>
             </li>
           ))}
@@ -277,6 +295,46 @@ const statusLabel: Record<string, string> = {
   .report-empty {
     color: var(--muted);
     font-size: 13px;
+  }
+
+  .audience-note {
+    color: var(--muted);
+    font-size: 11.5px;
+    margin: -10px 0 14px;
+  }
+
+  .report-link {
+    color: var(--ink);
+    font-weight: 600;
+    font-size: 13px;
+    flex: 1;
+  }
+
+  .report-link:hover {
+    color: var(--accent-deep);
+  }
+
+  .aud-badge {
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--accent-deep);
+    background: var(--accent-soft);
+    border-radius: 6px;
+    padding: 3px 8px;
+    flex-shrink: 0;
+  }
+
+  .aud-badge.internal {
+    color: var(--warning);
+    background: var(--warning-soft, #F6EBDD);
+  }
+
+  .report-list li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
   }
 
   @media (max-width: 900px) {

@@ -20,7 +20,7 @@ import {
   resourceLinkSchema,
   resourceUploadSchema,
 } from '../lib/schemas';
-import { buildHandoverMarkdown } from '../lib/reporting/handover';
+import { buildHandoverMarkdown, resolveClosedAt } from '../lib/reporting/handover';
 import { z } from 'zod';
 import type { ActionAPIContext } from 'astro:actions';
 import type { SupabaseClient, User } from '@supabase/supabase-js';
@@ -180,6 +180,16 @@ export const server = {
       handler: async (input, context) => {
         const { supabase } = requireUser(context);
         const { id, ...fields } = input;
+        if (fields.status) {
+          const { data: current } = await supabase
+            .from('projects')
+            .select('closed_at')
+            .eq('id', id)
+            .maybeSingle();
+          if (current) {
+            (fields as Record<string, unknown>).closed_at = resolveClosedAt(current.closed_at, fields.status, new Date());
+          }
+        }
         const { data, error } = await supabase
           .from('projects')
           .update(fields)
@@ -500,13 +510,20 @@ export const server = {
       input: closureSchema,
       handler: async (input, context) => {
         const { supabase } = requireUser(context);
-        const closing = input.status === 'delivered' || input.status === 'archived';
+        const { data: current } = await supabase
+          .from('projects')
+          .select('closed_at')
+          .eq('id', input.project_id)
+          .maybeSingle();
+        if (!current) {
+          throw new ActionError({ code: 'NOT_FOUND', message: 'A projekt nem található.' });
+        }
         const fields: Record<string, unknown> = {
           status: input.status,
           closure_notes: input.closure_notes ?? null,
           invoice_ref: input.invoice_ref ?? null,
           feedback_notes: input.feedback_notes ?? null,
-          closed_at: closing ? new Date().toISOString() : null,
+          closed_at: resolveClosedAt(current.closed_at, input.status, new Date()),
         };
         const { data, error } = await supabase
           .from('projects')
@@ -547,12 +564,17 @@ export const server = {
             throw new ActionError({ code: 'INTERNAL_SERVER_ERROR', message: r.error.message });
           }
         }
+        const workType = project.work_type as import('../lib/types').WorkType;
         const content_md = buildHandoverMarkdown({
           project,
           phases: phases.data ?? [],
           tasks: tasks.data ?? [],
           resources: resources.data ?? [],
           notes: notes.data ?? [],
+          verificationKeys: new Set(
+            tasksForWorkType(workType).filter((t) => t.needsVerification).map((t) => t.key),
+          ),
+          audience: input.audience ?? 'client',
           generatedAt: new Date(),
         });
         const { data: report, error: reportError } = await supabase
@@ -561,6 +583,7 @@ export const server = {
             owner_id: user.id,
             project_id: project.id,
             kind: 'handover',
+            audience: input.audience ?? 'client',
             content_md,
           })
           .select('id, created_at');

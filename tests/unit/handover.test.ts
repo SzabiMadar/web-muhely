@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildHandoverMarkdown, mdToHtml } from '../../src/lib/reporting/handover';
+import { buildHandoverMarkdown, mdToHtml, resolveClosedAt } from '../../src/lib/reporting/handover';
 import type { HandoverInput } from '../../src/lib/reporting/handover';
 
 const base: HandoverInput = {
@@ -18,8 +18,9 @@ const base: HandoverInput = {
   ],
   tasks: [
     { id: 't1', owner_id: 'u1', project_id: 'p1', phase_code: '01', template_item_key: null, label: 'Kész feladat', status: 'done', verification: 'passed', note: null, position: 0, created_at: '', updated_at: '' },
-    { id: 't2', owner_id: 'u1', project_id: 'p1', phase_code: '02', template_item_key: null, label: 'Nyitott feladat', status: 'todo', verification: 'not_tested', note: null, position: 1, created_at: '', updated_at: '' },
-    { id: 't3', owner_id: 'u1', project_id: 'p1', phase_code: '02', template_item_key: null, label: 'Hibás QA', status: 'done', verification: 'failed', note: 'Mobil menü rossz', position: 2, created_at: '', updated_at: '' },
+    { id: 't2', owner_id: 'u1', project_id: 'p1', phase_code: '02', template_item_key: null, label: 'Nem QA teendő', status: 'todo', verification: 'not_tested', note: null, position: 1, created_at: '', updated_at: '' },
+    { id: 't3', owner_id: 'u1', project_id: 'p1', phase_code: '02', template_item_key: 'p09-func', label: 'Hibás QA', status: 'done', verification: 'failed', note: 'Mobil menü rossz', position: 2, created_at: '', updated_at: '' },
+    { id: 't4', owner_id: 'u1', project_id: 'p1', phase_code: '02', template_item_key: 'p09-resp', label: 'Ellenőrizetlen QA', status: 'todo', verification: 'not_tested', note: null, position: 3, created_at: '', updated_at: '' },
   ],
   resources: [
     { id: 'r1', owner_id: 'u1', project_id: 'p1', kind: 'link', provider: 'GitHub', label: 'Repo', url: 'https://github.com/x/y', object_path: null, username: null, vault_ref: null, note: null, created_at: '', updated_at: '' },
@@ -28,6 +29,8 @@ const base: HandoverInput = {
   notes: [
     { id: 'n1', owner_id: 'u1', project_id: 'p1', phase_code: '01', title: 'Brief jegyzet', body_md: 'Jegyzet törzs', created_at: '', updated_at: '' },
   ],
+  verificationKeys: new Set(['p09-func', 'p09-resp']),
+  audience: 'client',
   generatedAt: new Date('2026-11-01T12:00:00Z'),
 };
 
@@ -37,59 +40,93 @@ describe('buildHandoverMarkdown', () => {
   it('fejléc és projektadatok', () => {
     expect(md).toContain('# Átadási dokumentum — Teszt weboldal');
     expect(md).toContain('**Ügyfél:** Fenyő Studio');
-    expect(md).toContain('**Munkatípus:** Új weboldal');
-    expect(md).toContain('**Státusz:** Átadott');
     expect(md).toContain('SZ-2026-042');
-    expect(md).toContain('Elégedett');
     expect(md).toContain('Scope szöveg');
   });
 
-  it('fázisösszesítő a státuszokkal', () => {
-    expect(md).toContain('01. Megkeresés');
-    expect(md).toContain('kész (1/1 feladat)');
-    expect(md).toContain('folyamatban (1/2 feladat)');
-  });
-
-  it('nyitott tételek külön szekcióban', () => {
-    expect(md).toContain('## Nyitott tételek');
-    expect(md).toContain('[teendő] Nyitott feladat');
-  });
-
-  it('QA: failed és not_tested nem sikeresként jelenik meg', () => {
-    expect(md).toContain('## QA-állapot');
+  it('QA: failed és not_tested külön szekcióban, csak releváns tételek', () => {
+    expect(md).toContain('### Sikertelen ellenőrzések');
     expect(md).toContain('**SIKERTELEN** Hibás QA');
     expect(md).toContain('Mobil menü rossz');
-    expect(md).toContain('**nem ellenőrzött** Nyitott feladat');
-    // a passed tétel NEM szerepel a QA-probléma szekcióban
-    expect(md.split('## QA-állapot')[1].split('## ')[1]).not.toContain('Kész feladat');
+    expect(md).toContain('### Ellenőrzésre váró tételek');
+    expect(md).toContain('**nem ellenőrzött** Ellenőrizetlen QA');
+    // a nem-QA feladat és a passed tétel NEM szerepel
+    const qaSection = md.split('## QA-állapot')[1].split('## Erőforrások')[0];
+    expect(qaSection).not.toContain('Nem QA teendő');
+    expect(qaSection).not.toContain('Kész feladat');
   });
 
-  it('erőforrások és hozzáférések — vault_ref látszik, secret nincs', () => {
-    expect(md).toContain('[Repo](https://github.com/x/y)');
-    expect(md).toContain('vault: 1PW > hosting');
-    expect(md).not.toContain('password');
+  it('nyitott tételek minden nyitott feladatot mutat', () => {
+    expect(md).toContain('[teendő] Nem QA teendő');
+    expect(md).toContain('[teendő] Ellenőrizetlen QA');
   });
 
-  it('jegyzetek és záró megjegyzés', () => {
-    expect(md).toContain('### Brief jegyzet (01. fázis)');
-    expect(md).toContain('Jegyzet törzs');
-    expect(md).toContain('## Záró megjegyzés');
-    expect(md).toContain('Záró szöveg');
+  it('client riport: nincs vault_ref és username', () => {
+    expect(md).toContain('**Hosting** — Netlify');
+    expect(md).not.toContain('vault: 1PW');
+    expect(md).not.toContain('szabo');
+    expect(md).toContain('belső fiókazonosítók');
   });
 
-  it('üres projekt esetén honest üres szekciók', () => {
+  it('internal riport: vault_ref és username benne van', () => {
+    const internal = buildHandoverMarkdown({ ...base, audience: 'internal' });
+    expect(internal).toContain('vault: 1PW > hosting');
+    expect(internal).toContain('szabo');
+  });
+
+  it('üres projekt: őszinte üres szekciók', () => {
     const empty = buildHandoverMarkdown({
       ...base,
       project: { ...base.project, scope_md: null, closure_notes: null, invoice_ref: null, feedback_notes: null },
       phases: [], tasks: [], resources: [], notes: [],
     });
     expect(empty).toContain('_Nincs nyitott feladat._');
-    expect(empty).toContain('_Minden ellenőrizendő tétel megfelelt vagy nem értelmezhető._');
+    expect(empty).toContain('_Ebben a projektben nincs ellenőrzési tétel._');
     expect(empty).toContain('_Nincs csatolt erőforrás._');
     expect(empty).toContain('_Nincs rögzített hozzáférés._');
     expect(empty).toContain('_Nincs rögzített jegyzet._');
     expect(empty).not.toContain('## Scope');
-    expect(empty).not.toContain('## Záró megjegyzés');
+  });
+
+  it('QA-tételek mind megfeleltek: őszinte siker-szöveg', () => {
+    const allPassed = buildHandoverMarkdown({
+      ...base,
+      tasks: [
+        { ...base.tasks[0], template_item_key: 'p09-func', verification: 'passed' },
+      ],
+    });
+    expect(allPassed).toContain('_Nincs sikertelen tétel._');
+    expect(allPassed).toContain('_Minden ellenőrzendő tétel megfelelt vagy nem értelmezhető._');
+  });
+});
+
+describe('resolveClosedAt', () => {
+  const now = new Date('2026-11-01T12:00:00Z');
+  const first = '2026-10-01T09:00:00Z';
+
+  it('első lezárás beállítja', () => {
+    expect(resolveClosedAt(null, 'delivered', now)).toBe(now.toISOString());
+    expect(resolveClosedAt(null, 'archived', now)).toBe(now.toISOString());
+    expect(resolveClosedAt(null, 'cancelled', now)).toBe(now.toISOString());
+  });
+
+  it('már létező dátumot nem ír felül', () => {
+    expect(resolveClosedAt(first, 'delivered', now)).toBe(first);
+    expect(resolveClosedAt(first, 'archived', now)).toBe(first);
+    expect(resolveClosedAt(first, 'cancelled', now)).toBe(first);
+  });
+
+  it('újranyitás törli', () => {
+    expect(resolveClosedAt(first, 'active', now)).toBeNull();
+    expect(resolveClosedAt(first, 'paused', now)).toBeNull();
+    expect(resolveClosedAt(first, 'draft', now)).toBeNull();
+  });
+
+  it('újralezárás új dátumot kap', () => {
+    const reopened = resolveClosedAt(first, 'active', now);
+    expect(reopened).toBeNull();
+    const reclose = new Date('2026-11-15T08:00:00Z');
+    expect(resolveClosedAt(reopened, 'delivered', reclose)).toBe(reclose.toISOString());
   });
 });
 

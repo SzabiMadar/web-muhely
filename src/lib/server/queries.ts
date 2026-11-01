@@ -163,3 +163,14 @@ export async function listProjectReports(supabase: SupabaseClient, projectId: st
   if (error) throw new Error(error.message);
   return (data ?? []) as import('../types').ProjectReport[];
 }
+
+export async function getProjectReport(supabase: SupabaseClient, projectId: string, reportId: string) {
+  const { data, error } = await supabase
+    .from('project_reports')
+    .select('*')
+    .eq('id', reportId)
+    .eq('project_id', projectId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data ?? null) as import('../types').ProjectReport | null;
+}

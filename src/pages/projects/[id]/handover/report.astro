@@ -1,6 +1,7 @@
 ---
 import { getProjectOverview, listProjectTasks, listProjectResources, listProjectNotes } from '../../../../lib/server/queries';
 import { buildHandoverMarkdown, mdToHtml } from '../../../../lib/reporting/handover';
+import { tasksForWorkType } from '../../../../lib/playbook/templates';
 
 const supabase = Astro.locals.supabase!;
 const project = await getProjectOverview(supabase, Astro.params.id!);
@@ -8,6 +9,7 @@ if (!project) {
   return Astro.redirect('/projects');
 }
 
+const audience = Astro.url.searchParams.get('audience') === 'internal' ? 'internal' : 'client';
 const [tasks, resources, notes] = await Promise.all([
   listProjectTasks(supabase, project.id),
   listProjectResources(supabase, project.id),
@@ -20,6 +22,10 @@ const md = buildHandoverMarkdown({
   tasks,
   resources,
   notes,
+  verificationKeys: new Set(
+    tasksForWorkType(project.work_type).filter((t) => t.needsVerification).map((t) => t.key),
+  ),
+  audience,
   generatedAt: new Date(),
 });
 const html = mdToHtml(md);
@@ -80,6 +86,9 @@ const html = mdToHtml(md);
   <body>
     <div class="toolbar">
       <a href={`/projects/${project.id}/handover`}>← Vissza az átadáshoz</a>
+      <a href={`/projects/${project.id}/handover/report?audience=${audience === 'internal' ? 'client' : 'internal'}`}>
+        {audience === 'internal' ? 'Ügyfél-nézet' : 'Belső nézet'}
+      </a>
       <button class="primary" type="button" onclick="window.print()">Nyomtatás / PDF mentés</button>
     </div>
     <article set:html={html} />

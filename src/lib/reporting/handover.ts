@@ -14,6 +14,8 @@ export interface HandoverInput {
   tasks: ProjectTask[];
   resources: ProjectResource[];
   notes: ProjectNote[];
+  verificationKeys: Set<string>;
+  audience: 'client' | 'internal';
   generatedAt: Date;
 }
 
@@ -46,18 +48,11 @@ const TASK_STATUS_LABEL: Record<string, string> = {
   skipped: 'kihagyva',
 };
 
-const VERIFICATION_LABEL: Record<string, string> = {
-  not_tested: 'nem ellenőrzött',
-  passed: 'megfelelt',
-  failed: 'SIKERTELEN',
-  not_applicable: 'n/a',
-};
-
 const fmtDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString('hu-HU') : '—';
 
 export function buildHandoverMarkdown(input: HandoverInput): string {
-  const { project, phases, tasks, resources, notes, generatedAt } = input;
+  const { project, phases, tasks, resources, notes, verificationKeys, generatedAt } = input;
   const L: string[] = [];
   const phaseTitle = (code: string) => PHASES.find((p) => p.code === code)?.title ?? code;
 
@@ -111,15 +106,36 @@ export function buildHandoverMarkdown(input: HandoverInput): string {
   }
   L.push('');
 
-  const qaTasks = tasks.filter((t) => t.verification === 'failed' || t.verification === 'not_tested');
-  L.push('## QA-állapot (nem ellenőrzött vagy sikertelen)');
+  const qaRelevant = tasks.filter(
+    (t) => (t.template_item_key && verificationKeys.has(t.template_item_key))
+      || t.verification === 'failed' || t.verification === 'passed' || t.verification === 'not_applicable',
+  );
+  const failedTasks = qaRelevant.filter((t) => t.verification === 'failed');
+  const untestedTasks = qaRelevant.filter((t) => t.verification === 'not_tested');
+  L.push('## QA-állapot');
   L.push('');
-  if (qaTasks.length === 0) {
-    L.push('_Minden ellenőrizendő tétel megfelelt vagy nem értelmezhető._');
+  if (qaRelevant.length === 0) {
+    L.push('_Ebben a projektben nincs ellenőrzési tétel._');
   } else {
-    for (const t of qaTasks) {
-      const note = t.note ? ` — ${t.note}` : '';
-      L.push(`- **${VERIFICATION_LABEL[t.verification]}** ${t.label} (feladat: ${TASK_STATUS_LABEL[t.status]})${note}`);
+    L.push('### Sikertelen ellenőrzések');
+    L.push('');
+    if (failedTasks.length === 0) {
+      L.push('_Nincs sikertelen tétel._');
+    } else {
+      for (const t of failedTasks) {
+        const note = t.note ? ` — ${t.note}` : '';
+        L.push(`- **SIKERTELEN** ${t.label} (feladat: ${TASK_STATUS_LABEL[t.status]})${note}`);
+      }
+    }
+    L.push('');
+    L.push('### Ellenőrzésre váró tételek');
+    L.push('');
+    if (untestedTasks.length === 0) {
+      L.push('_Minden ellenőrzendő tétel megfelelt vagy nem értelmezhető._');
+    } else {
+      for (const t of untestedTasks) {
+        L.push(`- **nem ellenőrzött** ${t.label} (feladat: ${TASK_STATUS_LABEL[t.status]})`);
+      }
     }
   }
   L.push('');
@@ -146,9 +162,17 @@ export function buildHandoverMarkdown(input: HandoverInput): string {
     L.push('_Nincs rögzített hozzáférés._');
   } else {
     for (const r of accesses) {
-      const parts = [r.provider, r.username].filter(Boolean).join(' — ');
-      L.push(`- **${r.label}** — ${parts}${r.vault_ref ? ` · vault: ${r.vault_ref}` : ''}${r.url ? ` · ${r.url}` : ''}`);
+      if (input.audience === 'client') {
+        L.push(`- **${r.label}** — ${[r.provider, r.url].filter(Boolean).join(' · ')}`);
+      } else {
+        const parts = [r.provider, r.username].filter(Boolean).join(' — ');
+        L.push(`- **${r.label}** — ${parts}${r.vault_ref ? ` · vault: ${r.vault_ref}` : ''}${r.url ? ` · ${r.url}` : ''}`);
+      }
     }
+  }
+  if (input.audience === 'client' && accesses.some((r) => r.vault_ref || r.username)) {
+    L.push('');
+    L.push('_A belső fiókazonosítók és jelszókezelő-hivatkozások a műhely-dossziéban maradnak._');
   }
   L.push('');
 
@@ -210,4 +234,11 @@ export function mdToHtml(md: string): string {
   }
   flush();
   return out.join('\n');
+}
+
+const CLOSED_STATUSES = new Set(['delivered', 'archived', 'cancelled']);
+
+export function resolveClosedAt(current: string | null, newStatus: string, now: Date): string | null {
+  if (!CLOSED_STATUSES.has(newStatus)) return null;
+  return current ?? now.toISOString();
 }
