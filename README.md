@@ -1,6 +1,6 @@
 # Műhely Workspace — egyszerűsített webalkalmazás
 
-**Aktív termékirány:** egyfelhasználós, webes, magyar nyelvű, vizuálisan igényes ügyfél- és projektmunkatér. **Jelenlegi állapot:** fejlesztői terv és képernyőminta; az Astro/Supabase alkalmazás még nem készült el.
+**Aktív termékirány:** egyfelhasználós, webes, magyar nyelvű, vizuálisan igényes ügyfél- és projektmunkatér. **Jelenlegi állapot:** a W0–W4 MVP-szeletek elkészültek — a teljes ügyfél→projekt→munka→dosszié→átadás útvonal működik helyi Supabase-szel.
 
 ## Mit építünk?
 
@@ -26,9 +26,28 @@ Astro SSR + TypeScript strict + natív CSS; Supabase Auth + PostgreSQL + privát
 7. `docs/product/PLAYBOOK_AND_AI.md` — szakmai fázisok; AI csak későbbi bővítés.
 8. `prompts/W0_START.md` — első fejlesztői feladat.
 
-## Jelenlegi fejlesztési cél
+## MVP-státusz (W0–W4)
 
-**W0:** Astro SSR app alap + TypeScript strict + design tokenek + AppShell + magyar dashboard korrekt üres állapottal + ellenőrzött parancsok. A Supabase-be való tényleges bejelentkezés és az ügyfél/projekt CRUD **W1**, és csak W0 elfogadása után indul.
+| Szelet | Tartalom | Állapot |
+|---|---|---|
+| W0 | Astro SSR app shell, design tokenek, AppShell, valódi üres állapotok | ✅ |
+| W1 | Supabase Auth, szerveroldali route protection, kompozit-FK + RLS, ügyfél/projekt CRUD | ✅ |
+| W2 | 11 fázisú playbook, munkatípus-sablonok, feladat/QA-állapotok (done ≠ passed) | ✅ |
+| W3 | Dosszié (linkek, presetek, privát fájlok, signed URL), hozzáférési térkép (vault_ref, secrets nélkül) | ✅ |
+| W4 | Lezárás (státusz + záradék + számla/visszajelzés-hivatkozás), Markdown-riport `project_reports`-snapshotbal, nyomtatható HTML, projektjegyzetek, delivered/archived visszakeresés | ✅ |
+
+**Ami még nincs:** Supabase Cloud-projekt és Netlify deploy (eddig csak lokális Docker), W5 funkciók (AI, PDF-motor, GitHub-integráció, PWA).
+
+**Production előtti javítások:**
+- W3 fájlfeltöltésnél nincs MIME-whitelist (csak méretlimit + útvonal-ellenőrzés) — exe/script feltöltés kezdőnaposan tiltható kellene.
+- `delivered`/`archived` projekt továbbra is szerkeszthető (nincs read-only lock az MVP-ben).
+
+## Fejlesztési keretek
+
+- Csak az aktuálisan kiosztott szeletet implementáld — most **W4 kész**, W5 nem kezdődött.
+- Minden fázis verziózott sablontartalom (`src/lib/playbook/templates.ts`), nem 11 backendmodul.
+- A feladatok állapotát a felhasználó jelöli; `not_tested`/`failed`/`not_applicable` külön jelentésű a `passed`-től.
+- Semmi jelszó, token, SSH-kulcs nem kerül az adatbázisba — csak jelszókezelő-referencia.
 
 ## Kontextushatár
 
@@ -55,7 +74,7 @@ npx supabase start   # Docker kell hozzá; az első induláskor letölti az imag
 npx supabase stop
 ```
 
-Az `npx supabase start` kimenetében kapott `API_URL` és `ANON_KEY` kerüljön a `.env`-be (`PUBLIC_SUPABASE_URL`, `PUBLIC_SUPABASE_ANON_KEY`). A migráció a `supabase/migrations/0001_core_schema.sql` — induláskor automatikusan lefut. RLS-teszt futtatása helyben:
+Az `npx supabase start` kimenetében kapott `API_URL` és `ANON_KEY` kerüljön a `.env`-be (`PUBLIC_SUPABASE_URL`, `PUBLIC_SUPABASE_ANON_KEY`). A migrációk (`supabase/migrations/0001`–`0004`) induláskor automatikusan lefutnak. RLS-teszt futtatása helyben:
 
 ```bash
 SUPABASE_TEST_URL=http://127.0.0.1:54321 \

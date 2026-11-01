@@ -93,4 +93,26 @@ RUN('RLS adatizoláció', () => {
       '01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11',
     ]);
   });
+
+  it('B nem látja A jegyzeteit és riportjait', async () => {
+    const { data: aUser } = await userA.auth.getUser();
+    await userA.from('project_notes').insert({
+      owner_id: aUser.user!.id, project_id: projectId, title: 'RLS-teszt jegyzet', body_md: 'x',
+    });
+    await userA.from('project_reports').insert({
+      owner_id: aUser.user!.id, project_id: projectId, kind: 'handover', content_md: '# t',
+    });
+    const { data: notes } = await userB.from('project_notes').select('id');
+    const { data: reports } = await userB.from('project_reports').select('id');
+    expect(notes ?? []).toHaveLength(0);
+    expect(reports ?? []).toHaveLength(0);
+  });
+
+  it('B nem tud jegyzetet beszúrni A projektjéhez', async () => {
+    const { data: bUser } = await userB.auth.getUser();
+    const { error } = await userB.from('project_notes').insert({
+      owner_id: bUser.user!.id, project_id: projectId, title: 'Illegális', body_md: '',
+    });
+    expect(error).not.toBeNull();
+  });
 });

@@ -31,6 +31,8 @@ export interface Project {
   due_date: string | null;
   closure_notes: string | null;
   feedback_notes: string | null;
+  closed_at: string | null;
+  invoice_ref: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -89,4 +91,26 @@ export interface ProjectResource {
   note: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ProjectNote {
+  id: string;
+  owner_id: string;
+  project_id: string;
+  phase_code: string | null;
+  client_visible: boolean;
+  title: string;
+  body_md: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectReport {
+  id: string;
+  owner_id: string;
+  project_id: string;
+  kind: 'handover' | 'summary';
+  audience: 'client' | 'internal';
+  content_md: string;
+  created_at: string;
 }
