@@ -16,11 +16,11 @@ Az éles konfiguráció módosítása csak külön jóváhagyással. Kulcsok/tit
 | Képek | png, jpg, jpeg, webp, gif | fejléc-szignatúra |
 | PDF | pdf | `%PDF` szignatúra |
 | Office | doc, xls | OLE szignatúra |
-| Office OOXML | docx, xlsx | `PK` szignatúra + kötelező `[Content_Types].xml` marker |
+| Office OOXML | docx, xlsx | `PK` szignatúra + érvényes ZIP Central Directory + kötelező entry-k (`[Content_Types].xml`, `word/document.xml` / `xl/workbook.xml`); ≤512 entry, ≤50 MB deklarált kibontva |
 | Szöveg | txt, md, csv | UTF-8 fatal dekód + control-char szűrés |
 
 - Tiltva: **zip, svg, html, exe, script és minden ismeretlen kiterjesztés**; hiányzó MIME-típus; kiterjesztés–MIME eltérés; hamis tartalom.
-- Konténerkockázat: a docx/xlsx belső fájllistája nincs vizsgálva (maradék makró/beágyazás-kockázat dokumentált — a feltöltés owner-only, privát bucket, nincs nyilvános megosztás).
+- Konténerkockázat: a docx/xlsx ZIP-struktúrája validált, de a belső XML-tartalom nincs értelmezve (maradék makró/beágyazás-kockázat dokumentált — a feltöltés owner-only, privát bucket, nincs nyilvános megosztás). A kitömörítés nem történik meg szerveroldalon.
 - Méretkorlát: 10 MB — alkalmazásszinten (`validateProjectFile`) **és** a `project-files` bucketen (`file_size_limit` + `allowed_mime_types`, 0007/0008 migráció).
 - Storage-RLS: írás csak `{uid}/{létező saját project_id}/` útvonalra (0008); olvasás/törlés owner-prefix.
 
@@ -79,4 +79,7 @@ Service role key NEM kell a runtime-hoz — se Netlify-envben, se kódban.
 4. Teljes E2E fiktív adatokkal: signup → ügyfél → projekt → workflow → QA → dosszié → átadás → snapshot → .md.
 5. Valódi böngészős nyomtatás/PDF-mentés a riportról; desktop + 375px mobil.
 6. Publikus signup tiltása (Dashboard → Auth → Signups disabled — egyszemélyes app).
-7. Incidens-alapok: Supabase backup (auto, free plan napi), `supabase db dump` mentés; Netlify rollback (deploy-history „Publish earlier”).
+7. **Mentés (manuális — a Free csomaghoz nincs menedzsment-napimentés):**
+   - DB: `npx supabase db dump --linked -f backup-$(date +%F).sql` (schema+data); hetente/változás után.
+   - Storage: `project-files` objektumok letöltése Dashboard → Storage UI-ból vagy `supabase.storage.download()`-os scripttel; heti archív.
+   - Incidens: Netlify deploy-history „Publish earlier” rollback; Supabase-ben Point-in-Time csak fizetős csomagon — Free-nél a manuális dump a visszaállítás alapja.

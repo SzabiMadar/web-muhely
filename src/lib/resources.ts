@@ -32,7 +32,7 @@ export interface FileRule {
   mimes: string[];
   magic?: number[][];
   text?: boolean;
-  marker?: string;
+  requiredEntries?: string[];
 }
 
 export const FILE_RULES: Record<string, FileRule> = {
@@ -44,8 +44,8 @@ export const FILE_RULES: Record<string, FileRule> = {
   pdf:  { mimes: ['application/pdf'], magic: [[0x25, 0x50, 0x44, 0x46]] },
   doc:  { mimes: ['application/msword'], magic: [[0xd0, 0xcf, 0x11, 0xe0]] },
   xls:  { mimes: ['application/vnd.ms-excel'], magic: [[0xd0, 0xcf, 0x11, 0xe0]] },
-  docx: { mimes: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'], magic: [[0x50, 0x4b]], marker: '[Content_Types].xml' },
-  xlsx: { mimes: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'], magic: [[0x50, 0x4b]], marker: '[Content_Types].xml' },
+  docx: { mimes: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'], magic: [[0x50, 0x4b]], requiredEntries: ['[Content_Types].xml', 'word/document.xml'] },
+  xlsx: { mimes: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'], magic: [[0x50, 0x4b]], requiredEntries: ['[Content_Types].xml', 'xl/workbook.xml'] },
   txt:  { mimes: ['text/plain'], text: true },
   md:   { mimes: ['text/markdown', 'text/plain'], text: true },
   csv:  { mimes: ['text/csv', 'text/plain'], text: true },
@@ -65,15 +65,45 @@ function hasMagic(bytes: Uint8Array, signatures: number[][]): boolean {
 
 export const FILE_ACCEPT = Object.keys(FILE_RULES).map((ext) => `.${ext}`).join(',');
 
-function containsMarker(bytes: Uint8Array, marker: string): boolean {
-  const needle = new TextEncoder().encode(marker);
-  outer: for (let i = 0; i + needle.length <= bytes.length; i++) {
-    for (let j = 0; j < needle.length; j++) {
-      if (bytes[i + j] !== needle[j]) continue outer;
-    }
-    return true;
+/**
+ * Minimális ZIP Central Directory-olvasó — csak szerkezet, inflate nélkül.
+ * Így a "kitömörítési korlát" definíció szerint teljesül (nem tömörítünk ki);
+ * a zip-bomb jelzést a deklarált uncompressed méretek korlátozása adja.
+ */
+const EOCD_SIG = 0x06054b50;
+const CDIR_SIG = 0x02014b50;
+const EOCD_MAX_SCAN = 22 + 0xffff;
+const MAX_ZIP_ENTRIES = 512;
+const MAX_ZIP_UNCOMPRESSED = 50 * 1024 * 1024;
+
+function parseZipEntries(bytes: Uint8Array): Set<string> | null {
+  if (bytes.length < 22) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const scanStart = Math.max(0, bytes.length - EOCD_MAX_SCAN);
+  let eocd = -1;
+  for (let i = bytes.length - 22; i >= scanStart; i--) {
+    if (view.getUint32(i, true) === EOCD_SIG) { eocd = i; break; }
   }
-  return false;
+  if (eocd < 0) return null;
+  const entryCount = view.getUint16(eocd + 10, true);
+  if (entryCount === 0 || entryCount > MAX_ZIP_ENTRIES) return null;
+  let pos = view.getUint32(eocd + 16, true);
+  const names = new Set<string>();
+  const decoder = new TextDecoder();
+  let uncompressedTotal = 0;
+  for (let i = 0; i < entryCount; i++) {
+    if (pos + 46 > bytes.length || view.getUint32(pos, true) !== CDIR_SIG) return null;
+    uncompressedTotal += view.getUint32(pos + 24, true);
+    if (uncompressedTotal > MAX_ZIP_UNCOMPRESSED) return null;
+    const nameLen = view.getUint16(pos + 28, true);
+    const extraLen = view.getUint16(pos + 30, true);
+    const commentLen = view.getUint16(pos + 32, true);
+    const nameStart = pos + 46;
+    if (nameStart + nameLen > bytes.length) return null;
+    names.add(decoder.decode(bytes.subarray(nameStart, nameStart + nameLen)));
+    pos = nameStart + nameLen + extraLen + commentLen;
+  }
+  return names;
 }
 
 function isSafeUtf8Text(bytes: Uint8Array): boolean {
@@ -103,8 +133,11 @@ export async function validateProjectFile(file: File): Promise<string | null> {
   if (rule.magic && !hasMagic(head, rule.magic)) {
     return 'A fájl tartalma nem felel meg a megadott típusnak.';
   }
-  if (rule.marker && !containsMarker(new Uint8Array(await file.arrayBuffer()), rule.marker)) {
-    return 'A fájl tartalma nem felel meg a megadott típusnak.';
+  if (rule.requiredEntries) {
+    const entries = parseZipEntries(new Uint8Array(await file.arrayBuffer()));
+    if (!entries || !rule.requiredEntries.every((entry) => entries.has(entry))) {
+      return 'A fájl tartalma nem felel meg a megadott típusnak.';
+    }
   }
   if (rule.text) {
     const sample = new Uint8Array(await file.slice(0, TEXT_SAMPLE_BYTES).arrayBuffer());
