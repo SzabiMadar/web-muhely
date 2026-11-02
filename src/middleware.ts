@@ -1,7 +1,7 @@
 import { defineMiddleware } from 'astro:middleware';
 import { createSupabaseServerClient, isSupabaseConfigured } from './lib/server/supabase';
 
-const PUBLIC_PREFIXES = ['/login', '/_astro', '/favicon', '/@', '/node_modules'];
+const PUBLIC_PREFIXES = ['/login', '/_astro', '/_actions', '/favicon', '/@', '/node_modules'];
 
 export const onRequest = defineMiddleware(async (context, next) => {
   const { pathname } = context.url;
