@@ -30,18 +30,46 @@ RUN('RLS adatizoláció', () => {
   beforeAll(async () => {
     userA = await signInUser('teszt.a@muhely.test', 'jelszo123');
     userB = await signInUser('teszt.b@muhely.test', 'jelszo123');
-    const { data: client } = await userA
+    const { data: aUser } = await userA.auth.getUser();
+    const { data: existingClient } = await userA
       .from('clients')
       .select('id')
       .eq('display_name', 'Fenyo Studio')
       .maybeSingle();
-    clientId = client?.id;
-    const { data: project } = await userA
+    clientId = existingClient?.id;
+    if (!clientId) {
+      const { data: created } = await userA
+        .from('clients')
+        .insert({ owner_id: aUser.user!.id, display_name: 'Fenyo Studio' })
+        .select('id')
+        .single();
+      clientId = created?.id;
+    }
+    const { data: existingProject } = await userA
       .from('projects')
       .select('id')
       .eq('title', 'Fenyo weboldal')
       .maybeSingle();
-    projectId = project?.id;
+    projectId = existingProject?.id;
+    if (!projectId) {
+      const { data: created } = await userA
+        .from('projects')
+        .insert({ owner_id: aUser.user!.id, client_id: clientId, title: 'Fenyo weboldal', work_type: 'new_site' })
+        .select('id')
+        .single();
+      projectId = created?.id;
+    }
+    const { data: phases } = await userA
+      .from('project_phases')
+      .select('phase_code')
+      .eq('project_id', projectId);
+    if ((phases ?? []).length === 0) {
+      await userA.from('project_phases').insert(
+        ['01','02','03','04','05','06','07','08','09','10','11'].map((code) => ({
+          owner_id: aUser.user!.id, project_id: projectId, phase_code: code,
+        })),
+      );
+    }
   });
 
   it('anon kliens nem olvas ügyféladatot', async () => {
@@ -106,6 +134,28 @@ RUN('RLS adatizoláció', () => {
     const { data: reports } = await userB.from('project_reports').select('id');
     expect(notes ?? []).toHaveLength(0);
     expect(reports ?? []).toHaveLength(0);
+  });
+
+  it('közvetlen Storage-upload nemlétező projekt alá deny', async () => {
+    const { data: aUser } = await userA.auth.getUser();
+    const path = `${aUser.user!.id}/${crypto.randomUUID()}/probe.txt`;
+    const { error } = await userA.storage.from('project-files').upload(path, new Blob(['x'], { type: 'text/plain' }));
+    expect(error).not.toBeNull();
+  });
+
+  it('közvetlen Storage-upload saját projekt alá OK', async () => {
+    const { data: aUser } = await userA.auth.getUser();
+    const path = `${aUser.user!.id}/${projectId}/probe-${Date.now()}.txt`;
+    const { error } = await userA.storage.from('project-files').upload(path, new Blob(['x'], { type: 'text/plain' }));
+    expect(error).toBeNull();
+    await userA.storage.from('project-files').remove([path]);
+  });
+
+  it('B nem tud feltölteni A projektútvonalára (uid-prefix deny)', async () => {
+    const { data: aUser } = await userA.auth.getUser();
+    const path = `${aUser.user!.id}/${projectId}/evil-${Date.now()}.txt`;
+    const { error } = await userB.storage.from('project-files').upload(path, new Blob(['x'], { type: 'text/plain' }));
+    expect(error).not.toBeNull();
   });
 
   it('B nem tud jegyzetet beszúrni A projektjéhez', async () => {
