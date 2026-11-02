@@ -14,7 +14,8 @@ for (const [k, v] of Object.entries({ CLOUD_URL: URL, CLOUD_ANON: ANON, TEST_USE
   if (!v) { console.error(`Hiányzó env: ${k}`); process.exit(1); }
 }
 
-const MARKER = 'CloudSmoke';
+const RUN_ID = `Smoke_${Date.now()}`;
+const created = { clientId: null, projectId: null, objectPaths: [] };
 const results = [];
 const t = (id, name, pass, detail = '') => {
   results.push(pass);
@@ -25,14 +26,22 @@ const a = createClient(URL, ANON, { auth: { persistSession: false } });
 const b = createClient(URL, ANON, { auth: { persistSession: false } });
 const anon = createClient(URL, ANON, { auth: { persistSession: false } });
 
-async function cleanup(client, uid) {
-  const { data: dirs } = await client.storage.from('project-files').list(uid);
-  for (const dir of dirs ?? []) {
-    const { data: files } = await client.storage.from('project-files').list(`${uid}/${dir.name}`);
-    const paths = (files ?? []).map((f) => `${uid}/${dir.name}/${f.name}`);
-    if (paths.length) await client.storage.from('project-files').remove(paths);
+async function cleanup(client) {
+  // Kizárólag a futás által létrehozott elemek törlése — pontos ID-k/útvonalak.
+  let clean = true;
+  if (created.objectPaths.length) {
+    const { error } = await client.storage.from('project-files').remove(created.objectPaths);
+    if (error) clean = false;
   }
-  await client.from('clients').delete().or(`display_name.like.${MARKER}%,display_name.like.Fiktív%`);
+  if (created.projectId) {
+    const { error } = await client.from('projects').delete().eq('id', created.projectId);
+    if (error) clean = false;
+  }
+  if (created.clientId) {
+    const { error } = await client.from('clients').delete().eq('id', created.clientId);
+    if (error) clean = false;
+  }
+  return clean;
 }
 
 try {
@@ -42,12 +51,13 @@ try {
   t('T0b', 'B login', !lb.error, lb.error?.message);
   const uidA = (await a.auth.getUser()).data.user.id;
   const uidB = (await b.auth.getUser()).data.user.id;
-  await cleanup(a, uidA); // korábbi futás maradványai
 
-  const { data: client, error: cErr } = await a.from('clients').insert({ owner_id: uidA, display_name: `${MARKER} Kft` }).select('id').single();
-  const { data: proj, error: pErr } = await a.from('projects').insert({ owner_id: uidA, client_id: client?.id, title: `${MARKER} projekt`, work_type: 'new_site' }).select('id').single();
+  const { data: client, error: cErr } = await a.from('clients').insert({ owner_id: uidA, display_name: `${RUN_ID} Kft` }).select('id').single();
+  const { data: proj, error: pErr } = await a.from('projects').insert({ owner_id: uidA, client_id: client?.id, title: `${RUN_ID} projekt`, work_type: 'new_site' }).select('id').single();
   const { error: phErr } = await a.from('project_phases').insert(
     ['01','02','03','04','05','06','07','08','09','10','11'].map((c) => ({ owner_id: uidA, project_id: proj?.id, phase_code: c })));
+  created.clientId = client?.id;
+  created.projectId = proj?.id;
   t('T1', 'A: ügyfél+projekt+11 fázis', !cErr && !pErr && !phErr, (cErr || pErr || phErr)?.message);
 
   const { data: bc } = await b.from('clients').select('id');
@@ -63,6 +73,7 @@ try {
 
   const blob = (s) => new Blob([s], { type: 'text/plain' });
   const okPath = `${uidA}/${proj.id}/probe.txt`;
+  created.objectPaths.push(okPath);
   const { error: upOk } = await a.storage.from('project-files').upload(okPath, blob('cloud-probe'));
   t('T4a', 'A upload saját projekt alá', !upOk, upOk?.message);
   const { data: signed, error: sErr } = await a.storage.from('project-files').createSignedUrl(okPath, 60);
@@ -93,8 +104,10 @@ try {
 } finally {
   try {
     const uidA = (await a.auth.getUser()).data?.user?.id;
-    if (uidA) await cleanup(a, uidA);
-  } catch { /* takarítási hiba nem fojtja el az eredményt */ }
+    if (uidA && !(await cleanup(a))) results.push(false);
+  } catch {
+    results.push(false);
+  }
 }
 
 const passed = results.filter(Boolean).length;
