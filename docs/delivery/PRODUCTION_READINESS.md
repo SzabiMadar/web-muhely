@@ -20,7 +20,7 @@ Az éles konfiguráció módosítása csak külön jóváhagyással. Kulcsok/tit
 | Szöveg | txt, md, csv | UTF-8 fatal dekód + control-char szűrés |
 
 - Tiltva: **zip, svg, html, exe, script és minden ismeretlen kiterjesztés**; hiányzó MIME-típus; kiterjesztés–MIME eltérés; hamis tartalom.
-- Konténerkockázat: a docx/xlsx ZIP-struktúrája validált, de a belső XML-tartalom nincs értelmezve (maradék makró/beágyazás-kockázat dokumentált — a feltöltés owner-only, privát bucket, nincs nyilvános megosztás). A kitömörítés nem történik meg szerveroldalon.
+- Konténerkockázat és korlátok (docx/xlsx): a ZIP Central Directory **szerkezeti** ellenőrzése történik meg — ez NEM teljes tartalmi integritásvizsgálat. Nem ellenőrizzük: entry-CRC, helyi fejléc–central directory konzisztencia, XML-tartalom, beágyazott objektumok, makrók. Maradék kockázat dokumentált — a feltöltés owner-only, privát bucket, nincs nyilvános megosztás. Kitömörítés szerveroldalon nincs.
 - Méretkorlát: 10 MB — alkalmazásszinten (`validateProjectFile`) **és** a `project-files` bucketen (`file_size_limit` + `allowed_mime_types`, 0007/0008 migráció).
 - Storage-RLS: írás csak `{uid}/{létező saját project_id}/` útvonalra (0008); olvasás/törlés owner-prefix.
 
@@ -80,6 +80,8 @@ Service role key NEM kell a runtime-hoz — se Netlify-envben, se kódban.
 5. Valódi böngészős nyomtatás/PDF-mentés a riportról; desktop + 375px mobil.
 6. Publikus signup tiltása (Dashboard → Auth → Signups disabled — egyszemélyes app).
 7. **Mentés (manuális — a Free csomaghoz nincs menedzsment-napimentés):**
-   - DB: `npx supabase db dump --linked -f backup-$(date +%F).sql` (schema+data); hetente/változás után.
-   - Storage: `project-files` objektumok letöltése Dashboard → Storage UI-ból vagy `supabase.storage.download()`-os scripttel; heti archív.
-   - Incidens: Netlify deploy-history „Publish earlier” rollback; Supabase-ben Point-in-Time csak fizetős csomagon — Free-nél a manuális dump a visszaállítás alapja.
+   - Séma: `npx supabase db dump --linked -f backup-schema.sql` — a dump alapértelmezetten csak sémát ment.
+   - Publikus adat: `npx supabase db dump --linked --data-only -f backup-data.sql`.
+   - Auth-felhasználók: `npx supabase db dump --linked --data-only -s auth -f backup-auth.sql` vagy Dashboard → Authentication export. **A fájl jelszó-hasheket tartalmaz — titkosan kezelendő, nem repóba.**
+   - Storage: a `db dump` csak az `storage.objects` metaadat-sorokat menti (`-s storage`); a tényleges fájlok külön letöltsd Dashboard → Storage UI vagy signed-url scripttel.
+   - Incidens: Netlify deploy-history „Publish earlier” rollback; Point-in-Time csak fizetős csomagon — Free-nél a manuális dump a visszaállítás alapja.
